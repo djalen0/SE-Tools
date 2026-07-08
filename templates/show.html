@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{ show.name }} - Pinning Sheet Editor</title>
+<link rel="manifest" href="{{ url_for('static', filename='manifest.json') }}">
+<meta name="theme-color" content="#4f46e5">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Pinning Sheets">
+<link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body data-show-slug="{{ show.slug }}">
+<header class="page-topbar">
+  <nav class="breadcrumb">
+    <a href="/">Home</a>
+    <span class="crumb-sep">/</span>
+    <span class="crumb-current">{{ show.name }}</span>
+  </nav>
+</header>
+<div class="page-content">
+  <h1>{{ show.name }}</h1>
+  <p class="page-sub">Pick a date to open its pinning sheet, or add a new one.</p>
+  <div class="entity-list" id="dateList"></div>
+  <form class="new-entity-form" id="newDateForm">
+    <input type="text" name="date" placeholder="New date (e.g. 7/8/2026)" maxlength="40" required>
+    <button type="submit" class="btn btn-primary">Add date</button>
+  </form>
+</div>
+
+<button id="authLockBtn" class="auth-lock-btn" type="button" aria-label="Locked"></button>
+<div id="authPopover" class="auth-popover" hidden>
+  <form id="authForm">
+    <input type="password" name="password" placeholder="Password" autofocus required>
+    <button type="submit" class="btn btn-primary">Unlock</button>
+  </form>
+  <p id="authError" class="auth-error"></p>
+</div>
+
+<script src="{{ url_for('static', filename='auth.js') }}"></script>
+<script src="{{ url_for('static', filename='show.js') }}"></script>
+</body>
+</html>

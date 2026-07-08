@@ -9,6 +9,13 @@
 const FIELD_LABELS = {label:'Cab', model:'Model', dispersion:'Disp', angle:'Splay', circuit:'CKT', nfc:'NFC'};
 let STATE = null;
 
+// This Date's identity, from the URL (see date_page() in app.py, which
+// passes both into the template as data-* attributes on <body>) -- every
+// API call for this job is scoped under these two.
+const SHOW_SLUG = document.body.getAttribute('data-show-slug');
+const DATE_SLUG = document.body.getAttribute('data-date-slug');
+const API_BASE = `/api/shows/${encodeURIComponent(SHOW_SLUG)}/dates/${encodeURIComponent(DATE_SLUG)}`;
+
 // Standard "link" (chain) glyph -- marks two boxes wired to the same
 // circuit (see the circuit-link-icon rendering in renderCard).
 const LINK_ICON_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>';
@@ -18,6 +25,7 @@ const LINK_ICON_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor
 // upload, and Save control is disabled. Export is left enabled since
 // downloading a copy doesn't touch the shared job.
 const VIEW_ONLY = new URLSearchParams(location.search).get('view') === '1';
+if (VIEW_ONLY) document.body.classList.add('view-only');
 
 // The card grid is mobile-first: below this width cards always stack one
 // per row (a "cards per row" setting of 2+ would be unreadably narrow on a
@@ -28,9 +36,39 @@ const DESKTOP_MQL = window.matchMedia('(min-width: 700px)');
 DESKTOP_MQL.addEventListener('change', () => render());
 
 async function loadState() {
-  const res = await fetch('/api/state');
-  STATE = await res.json();
+  const res = await fetch(`${API_BASE}/state`);
+  // A non-ok response (401 locked, 404 gone) isn't a job -- treat it the
+  // same as no job loaded rather than rendering whatever error body came
+  // back as if it were real state.
+  STATE = res.ok ? await res.json() : null;
   render();
+}
+
+// Lets the breadcrumb's date dropdown (in the mobile topbar and the
+// desktop sidebar -- see .date-switcher in index.html) jump straight to
+// any other date already in this show, without going back through the
+// Show page. Populated once (the list of dates doesn't change from
+// editing this one), and again after signing in if it 401'd locked.
+function initDateSwitcher() {
+  const switchers = document.querySelectorAll('.date-switcher');
+  if (!switchers.length) return;
+  fetch(`/api/shows/${encodeURIComponent(SHOW_SLUG)}/dates`).then(r => r.ok ? r.json() : null).then(data => {
+    if (!data) return;
+    const qs = VIEW_ONLY ? '?view=1' : '';
+    switchers.forEach(sel => {
+      sel.innerHTML = '';
+      (data.dates || []).forEach(d => {
+        const opt = document.createElement('option');
+        opt.value = d.slug;
+        opt.textContent = d.date;
+        if (d.slug === DATE_SLUG) opt.selected = true;
+        sel.appendChild(opt);
+      });
+      sel.onchange = () => {
+        window.location.href = `/${encodeURIComponent(SHOW_SLUG)}/${encodeURIComponent(sel.value)}${qs}`;
+      };
+    });
+  });
 }
 
 function assignCircuitColors(cabinets, palette) {
@@ -163,22 +201,51 @@ function render() {
     applyViewOnlyLock();
     return;
   }
-  grid.style.display = 'grid';
-  emptyState.style.display = 'none';
-
   document.getElementById('cardsPerRow').value = STATE.cards_per_row;
   const pageHeader = STATE.page_header || {};
   document.getElementById('showTitleInput').value = pageHeader.title || '';
   document.getElementById('showVenueInput').value = pageHeader.venue || '';
   document.getElementById('showDateInput').value = pageHeader.date || '';
+
+  // Only ever visible in @media print -- see .print-header in style.css.
+  const printHeader = document.getElementById('printHeader');
+  printHeader.innerHTML = '';
+  if (pageHeader.title) {
+    const t = document.createElement('div');
+    t.className = 'ph-title';
+    t.textContent = pageHeader.title;
+    printHeader.appendChild(t);
+  }
+  const printMetaBits = [pageHeader.venue, pageHeader.date].filter(Boolean).join(' • ');
+  if (printMetaBits) {
+    const m = document.createElement('div');
+    m.className = 'ph-meta';
+    m.textContent = printMetaBits;
+    printHeader.appendChild(m);
+  }
+
+  // Only ever visible for view-only + mobile (see body.view-only rules in
+  // style.css) -- same title/venue/date as printHeader above, just shown
+  // on screen instead of only when printing.
+  document.getElementById('voTitle').textContent = pageHeader.title || '';
+  document.getElementById('voMeta').textContent = printMetaBits;
+
+  // A brand new Date (created but nothing uploaded to it yet) has a job
+  // with sections: [] -- same empty-state prompt as no job at all, rather
+  // than an empty grid with no cards and no explanation.
+  const hasSections = STATE.sections && STATE.sections.length > 0;
+  grid.style.display = hasSections ? 'grid' : 'none';
+  emptyState.style.display = hasSections ? 'none' : 'block';
   grid.innerHTML = '';
-  grid.style.gridTemplateColumns = DESKTOP_MQL.matches ? `repeat(${STATE.cards_per_row}, 1fr)` : '1fr';
 
-  const cfg = STATE.circuit_color_config || {};
-  const cycleLen = Math.max(1, Math.min(cfg.cycle_length || 4, (cfg.circuit_colors || []).length || 1));
-  const activePalette = (cfg.circuit_colors || []).slice(0, cycleLen);
-
-  STATE.sections.forEach(section => grid.appendChild(renderCard(section, cfg, activePalette, cycleLen)));
+  if (hasSections) {
+    grid.style.gridTemplateColumns = DESKTOP_MQL.matches ? `repeat(${STATE.cards_per_row}, 1fr)` : '1fr';
+    const cfg = STATE.circuit_color_config || {};
+    const cycleLen = Math.max(1, Math.min(cfg.cycle_length || 4, (cfg.circuit_colors || []).length || 1));
+    const activePalette = (cfg.circuit_colors || []).slice(0, cycleLen);
+    STATE.sections.forEach(section => grid.appendChild(renderCard(section, cfg, activePalette, cycleLen)));
+    fixupMetaChipLayout();
+  }
   renderColorPanel();
   renderNumberingPanel();
   applyViewOnlyLock();
@@ -363,6 +430,35 @@ function renderCard(section, cfg, activePalette, cycleLen) {
 
   content.appendChild(body);
   return card;
+}
+
+// Decides, per row PAIR (matching the 2-column meta-col grid), whether
+// both chips sit inline or both stack -- run after every card is in the
+// live DOM, since it needs real layout (scrollWidth vs clientWidth) to
+// measure whether a chip's content actually fits inline. See the
+// .meta-row/.meta-row-stacked comment in style.css for why this is
+// decided per pair rather than per chip.
+function fixupMetaChipLayout() {
+  document.querySelectorAll('.meta-col').forEach(metaCol => {
+    const rows = [...metaCol.children];
+    for (let i = 0; i < rows.length; i += 2) {
+      const pair = rows[i + 1] ? [rows[i], rows[i + 1]] : [rows[i]];
+      pair.forEach(row => row.classList.remove('meta-row-stacked'));
+      // Check the label/value elements themselves, not the row -- the
+      // value has its own overflow:hidden + ellipsis (a last-resort
+      // safety net for the inline case), which quietly absorbs overflow
+      // via min-width:0 flex-shrink before it ever reaches the row's own
+      // box, so the ROW's scrollWidth never actually exceeds its
+      // clientWidth even when the value inside it doesn't really fit.
+      const overflowed = pair.some(row => {
+        const label = row.querySelector('.meta-label');
+        const value = row.querySelector('.meta-value');
+        return (label && label.scrollWidth > label.clientWidth + 1) ||
+               (value && value.scrollWidth > value.clientWidth + 1);
+      });
+      if (overflowed) pair.forEach(row => row.classList.add('meta-row-stacked'));
+    }
+  });
 }
 
 function renderColorPanel() {
@@ -574,7 +670,7 @@ function renderNumberingPanel() {
 
 async function saveState(showStatus) {
   if (!STATE) return;
-  const res = await fetch('/api/state', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(STATE) });
+  const res = await fetch(`${API_BASE}/state`, { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(STATE) });
   if (showStatus !== false) {
     if (res.ok) flashStatus('Saved');
     else flashStatus('Save failed');
@@ -585,7 +681,7 @@ async function exportXlsx() {
   if (!STATE) return;
   await saveState(false);
   flashStatus('Exporting...');
-  const res = await fetch('/api/export', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(STATE) });
+  const res = await fetch(`${API_BASE}/export`, { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(STATE) });
   if (!res.ok) {
     let msg = 'Export failed';
     try { msg = (await res.json()).error || msg; } catch (e) {}
@@ -611,11 +707,103 @@ async function exportXlsx() {
   flashStatus('Exported' + (warnings.length ? ' (' + warnings.length + ' warning(s))' : ''));
 }
 
+// PDF export re-uses the exact on-screen rendering via the browser's own
+// print-to-PDF (window.print()) rather than a server-generated file --
+// each mode swaps in different print-only CSS (see "@media print" in
+// style.css) and a matching @page size/orientation (injected as its own
+// <style> tag, since @page can't be scoped to a class selector) before
+// opening the print dialog, then cleans both up once printing is done.
+function setPrintPageStyle(css) {
+  let el = document.getElementById('printPageStyle');
+  if (!el) {
+    el = document.createElement('style');
+    el.id = 'printPageStyle';
+    document.head.appendChild(el);
+  }
+  el.textContent = css;
+}
+
+// CSS "in"/"mm" units are device-independent by spec (1in is always 96px,
+// regardless of screen or printer DPI), so these conversions reliably
+// predict the printed page's actual pixel size.
+function mmToPx(mm) { return (mm / 25.4) * 96; }
+function inToPx(inches) { return inches * 96; }
+
+// Never shrunk past this, no matter how much content there is -- past this
+// point a sheet just spans multiple printed pages (each card still won't
+// split mid-page, see .card's break-inside:avoid in style.css) instead of
+// becoming illegibly tiny trying to force everything onto one page.
+const MIN_FIT_SCALE = 0.4;
+
+// Shrinks (never enlarges) the printed content to fit within one page --
+// measuring it laid out at the page's own usable width, which is what the
+// print engine will actually use regardless of the browser window's
+// current width -- so a normal small pinning sheet (e.g. 4 sections)
+// always lands on one printed page without the user having to dig into
+// their print dialog's manual scale/"fit to page" option.
+function fitContentToPage(pageWidthIn, pageHeightIn, marginMm) {
+  const root = document.getElementById('root');
+  const marginPx = mmToPx(marginMm);
+  const usableWidth = inToPx(pageWidthIn) - marginPx * 2;
+  const usableHeight = inToPx(pageHeightIn) - marginPx * 2;
+  root.style.transform = 'none';
+  root.style.width = usableWidth + 'px';
+  const rect = root.getBoundingClientRect();
+  const scale = Math.max(MIN_FIT_SCALE, Math.min(1, usableWidth / rect.width, usableHeight / rect.height));
+  root.style.transformOrigin = 'top left';
+  root.style.transform = scale < 1 ? `scale(${scale})` : 'none';
+}
+
+function resetContentFit() {
+  const root = document.getElementById('root');
+  root.style.transform = '';
+  root.style.width = '';
+  root.style.transformOrigin = '';
+}
+
+function runPrint(modeClass, pageCss, gridColumns, fitPage) {
+  if (!STATE) return;
+  setPrintPageStyle(pageCss);
+  document.body.classList.add(modeClass);
+  // Bypasses DESKTOP_MQL's usual viewport-driven column count -- printing
+  // the grid layout should show real columns even if the button was
+  // clicked from a phone-width browser window, and printing the mobile
+  // layout should force 1 column even from a wide one.
+  document.getElementById('grid').style.gridTemplateColumns = gridColumns;
+  if (fitPage) fitContentToPage(fitPage.widthIn, fitPage.heightIn, fitPage.marginMm);
+  const cleanup = () => {
+    document.body.classList.remove(modeClass);
+    setPrintPageStyle('');
+    resetContentFit();
+    render();
+    window.removeEventListener('afterprint', cleanup);
+  };
+  window.addEventListener('afterprint', cleanup);
+  window.print();
+}
+
+function exportPrintGrid() {
+  const cols = Math.max(1, (STATE && STATE.cards_per_row) || 2);
+  runPrint(
+    'print-mode-grid',
+    '@page { size: landscape; margin: 10mm; }',
+    `repeat(${cols}, 1fr)`,
+    {widthIn: 11, heightIn: 8.5, marginMm: 10}
+  );
+}
+
+function exportPrintMobile() {
+  // Not fit-to-one-page -- this mode is deliberately one section per
+  // printed page (see .print-mode-mobile's break-after rule), so there's
+  // no single "page" to shrink the whole sheet down to.
+  runPrint('print-mode-mobile', '@page { size: portrait; margin: 10mm; }', '1fr');
+}
+
 async function uploadFile(file) {
   flashStatus('Uploading...');
   const formData = new FormData();
   formData.append('file', file);
-  const res = await fetch('/api/upload', { method: 'POST', body: formData });
+  const res = await fetch(`${API_BASE}/upload`, { method: 'POST', body: formData });
   if (!res.ok) {
     let msg = 'Upload failed';
     try { msg = (await res.json()).error || msg; } catch (e) {}
@@ -642,7 +830,7 @@ function applyViewOnlyLock() {
   document.getElementById('uploadLabel').style.display = 'none';
   document.getElementById('saveBtn').style.display = 'none';
   document.querySelectorAll('input, select').forEach(el => { el.disabled = true; });
-  const alwaysEnabled = ['exportBtn', 'colorToggleBtn', 'numberingToggleBtn', 'menuToggleBtn', 'menuCloseBtn'];
+  const alwaysEnabled = ['exportBtn', 'printGridBtn', 'printMobileBtn', 'colorToggleBtn', 'numberingToggleBtn', 'menuToggleBtn', 'menuCloseBtn'];
   document.querySelectorAll('button').forEach(btn => {
     if (!alwaysEnabled.includes(btn.id)) {
       btn.disabled = true;
@@ -669,6 +857,8 @@ bindShowField('showVenueInput', 'venue');
 bindShowField('showDateInput', 'date');
 document.getElementById('saveBtn').addEventListener('click', () => saveState(true));
 document.getElementById('exportBtn').addEventListener('click', exportXlsx);
+document.getElementById('printGridBtn').addEventListener('click', exportPrintGrid);
+document.getElementById('printMobileBtn').addEventListener('click', exportPrintMobile);
 document.getElementById('colorToggleBtn').addEventListener('click', () => {
   const p = document.getElementById('colorPanel');
   p.style.display = p.style.display === 'none' ? 'block' : 'none';
@@ -695,4 +885,6 @@ document.getElementById('menuToggleBtn').addEventListener('click', () => setMenu
 document.getElementById('menuCloseBtn').addEventListener('click', () => setMenuOpen(false));
 document.getElementById('sidebarBackdrop').addEventListener('click', () => setMenuOpen(false));
 
+window.addEventListener('authed', () => { loadState(); initDateSwitcher(); });
+initDateSwitcher();
 loadState();

@@ -10,15 +10,46 @@
 <meta name="apple-mobile-web-app-title" content="Pinning Sheets">
 <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
-<body>
+<body data-show-slug="{{ show.slug }}" data-date-slug="{{ date_slug }}">
 <div class="app-shell">
   <div class="mobile-topbar">
     <button id="menuToggleBtn" class="menu-toggle" aria-label="Open menu">&#9776; Menu</button>
-    <span class="mobile-title">Pinning Sheet Editor</span>
+    <nav class="breadcrumb">
+      <a href="/">Home</a>
+      <span class="crumb-sep">/</span>
+      <a href="/{{ show.slug }}">{{ show.name }}</a>
+      <span class="crumb-sep">/</span>
+      <select class="date-switcher"></select>
+    </nav>
   </div>
   <div class="sidebar-backdrop" id="sidebarBackdrop"></div>
+  <!-- View-only + mobile only (see body.view-only rules in style.css) --
+       a compact, absolutely-positioned stand-in for the full menu/sidebar,
+       so a viewer just sees the show name/venue/date without a hamburger
+       menu or any editing controls, and without the header reserving
+       permanent scroll-locked space the way the editor's sticky topbar
+       does. Populated in app.js's render() alongside printHeader. -->
+  <div class="view-only-topbar" id="viewOnlyTopbar">
+    <nav class="breadcrumb">
+      <a href="/">Home</a>
+      <span class="crumb-sep">/</span>
+      <a href="/{{ show.slug }}">{{ show.name }}</a>
+    </nav>
+    <div class="vo-title" id="voTitle"></div>
+    <div class="vo-meta" id="voMeta"></div>
+  </div>
   <aside class="sidebar" id="sidebar">
     <div class="sidebar-header">
+      <div class="sidebar-header-top">
+        <nav class="breadcrumb">
+          <a href="/">Home</a>
+          <span class="crumb-sep">/</span>
+          <a href="/{{ show.slug }}">{{ show.name }}</a>
+          <span class="crumb-sep">/</span>
+          <select class="date-switcher"></select>
+        </nav>
+        <button id="menuCloseBtn" class="menu-close" aria-label="Close menu">&times;</button>
+      </div>
       <!-- The editor types these in directly; view-only mode disables them
            (see applyViewOnlyLock) and they're styled to read as plain text
            either way, not a form -- see .show-field in style.css. -->
@@ -27,7 +58,6 @@
         <input id="showVenueInput" class="show-field show-venue" type="text" placeholder="Venue" maxlength="120">
         <input id="showDateInput" class="show-field show-date" type="text" placeholder="Date" maxlength="40">
       </div>
-      <button id="menuCloseBtn" class="menu-close" aria-label="Close menu">&times;</button>
     </div>
     <span id="viewOnlyBanner" class="badge-view-only" style="display:none;">View only</span>
     <div class="toolbar-fields">
@@ -40,12 +70,28 @@
       <button id="saveBtn" class="btn">Save</button>
       <button id="exportBtn" class="btn btn-primary">Export to Excel</button>
     </div>
+    <!-- PDF export is the browser's own print-to-PDF (window.print(), see
+         exportPrintGrid/exportPrintMobile in app.js) rather than a
+         server-generated file -- it reuses the exact on-screen rendering
+         instead of re-implementing the card layout in a PDF library, and
+         needs no new backend dependency. Each button swaps in a different
+         print-only layout (see the "@media print" rules in style.css)
+         before opening the print dialog. -->
+    <div class="toolbar-actions print-actions">
+      <button id="printGridBtn" class="btn btn-ghost">Export PDF (grid)&hellip;</button>
+      <button id="printMobileBtn" class="btn btn-ghost">Export PDF (mobile)&hellip;</button>
+    </div>
     <span id="statusMsg" class="status-msg"></span>
     <div id="colorPanel" class="settingsPanel" style="display:none;"></div>
     <div id="numberingPanel" class="settingsPanel" style="display:none;"></div>
   </aside>
   <main class="main-content">
     <div id="root">
+      <!-- Hidden on screen, shown only in @media print (see style.css) --
+           the show title/venue/date live as sidebar inputs the rest of the
+           time, but the sidebar itself is hidden for print, so this is the
+           one place that information still appears on a printed/PDF page. -->
+      <div id="printHeader" class="print-header"></div>
       <div id="emptyState" class="empty-state" style="display:none;">
         <p class="empty-title">No pinning sheet loaded yet</p>
         <p class="empty-sub">Upload a PDF or .txt export using the button above to get started.</p>
@@ -55,6 +101,16 @@
   </main>
 </div>
 
+<button id="authLockBtn" class="auth-lock-btn" type="button" aria-label="Locked"></button>
+<div id="authPopover" class="auth-popover" hidden>
+  <form id="authForm">
+    <input type="password" name="password" placeholder="Password" autofocus required>
+    <button type="submit" class="btn btn-primary">Unlock</button>
+  </form>
+  <p id="authError" class="auth-error"></p>
+</div>
+
+<script src="{{ url_for('static', filename='auth.js') }}"></script>
 <script src="{{ url_for('static', filename='app.js') }}"></script>
 <script>
 if ('serviceWorker' in navigator) {
