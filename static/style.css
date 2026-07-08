@@ -1,25 +1,136 @@
-:root { --row-h: 28px; }
-body { font-family: Arial, Helvetica, sans-serif; margin: 0; background: #f2f2f2; color: #222; }
-.toolbar { display: flex; align-items: center; gap: 16px; padding: 10px 16px; background: #fff; border-bottom: 1px solid #ccc; flex-wrap: wrap; }
-.toolbar label { font-size: 13px; }
-.toolbar input[type=number] { width: 50px; }
-.toolbar input[type=file] { font-size: 12px; max-width: 200px; }
-button { cursor: pointer; padding: 6px 12px; border: 1px solid #888; background: #eee; border-radius: 4px; font-size: 13px; }
-button:hover { background: #ddd; }
+/* Mobile-first: every rule below the "Desktop enhancements" media query
+   describes the phone experience (default, no query needed) -- full-width
+   single-column cards, stacked box-list/metadata, larger touch targets.
+   The min-width query on top of that turns on the desktop layout (side by
+   side box-list/metadata, denser rows, multi-column grid) as an
+   enhancement, rather than starting from a desktop layout and stripping it
+   back down for phones. */
+:root {
+  --row-h: 36px;
+  --bg: #f1f2f6;
+  --surface: #ffffff;
+  --border: #e3e5ec;
+  --border-strong: #d1d5e0;
+  --text: #1c2030;
+  --text-muted: #6b7180;
+  --accent: #4f46e5;
+  --accent-hover: #4338ca;
+  --accent-soft: #eef0fe;
+  --radius: 12px;
+  --radius-sm: 6px;
+  --shadow: 0 1px 2px rgba(20, 22, 40, 0.04), 0 4px 14px rgba(20, 22, 40, 0.06);
+}
+
+* { box-sizing: border-box; }
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* --- Toolbar ---------------------------------------------------------- */
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  box-shadow: var(--shadow);
+  flex-wrap: wrap;
+  position: sticky;
+  top: 0;
+  z-index: 20;
+}
+.toolbar-brand { display: flex; align-items: center; gap: 10px; }
+.toolbar-brand strong { font-size: 16px; font-weight: 700; letter-spacing: -0.01em; }
+.badge-view-only {
+  font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em;
+  color: #b42318; background: #fef1f0; border: 1px solid #fbd5d1;
+  padding: 3px 8px; border-radius: 999px;
+}
+.toolbar-fields { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.toolbar-fields label { font-size: 12px; font-weight: 600; color: var(--text-muted); display: flex; align-items: center; gap: 6px; }
+.toolbar-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.upload-label input[type=file] { font-size: 12px; max-width: 180px; color: var(--text); }
+.field-inline input[type=number] { width: 56px; height: 32px; font-size: 14px; }
+.status-msg { font-size: 12px; color: var(--text-muted); font-weight: 600; margin-left: auto; }
+
+/* --- Buttons ------------------------------------------------------------
+   Base rule covers every button on the page, including the ones app.js
+   builds dynamically inside the settings panels (add/remove color, convert
+   numbering) which never get a class -- the .btn modifiers on top of it
+   are only for the toolbar's own buttons. Sized for a fingertip by
+   default; the desktop query below shrinks them back down for a mouse. */
+button {
+  cursor: pointer;
+  padding: 10px 14px;
+  border: 1px solid var(--border-strong);
+  background: var(--surface);
+  color: var(--text);
+  border-radius: var(--radius-sm);
+  font-size: 14px;
+  font-weight: 600;
+  transition: background 0.12s ease, border-color 0.12s ease, color 0.12s ease;
+}
+button:hover { background: #f6f7fb; border-color: #b7bcca; }
+button:active { background: #eceefb; }
 button:disabled { opacity: 0.5; cursor: not-allowed; }
-#statusMsg { font-size: 12px; color: #555; }
-.settingsPanel { padding: 10px 16px; background: #fafafa; border-bottom: 1px solid #ddd; font-size: 13px; }
-.settingsPanel .swatchRow { display: flex; align-items: center; gap: 8px; margin: 4px 0; flex-wrap: wrap; }
-.settingsPanel input[type=color] { width: 28px; height: 24px; padding: 0; border: 1px solid #999; }
-.settingsPanel input[type=text] { width: 90px; }
-.grid { display: grid; gap: 16px; padding: 16px; }
-.card { background: #fff; border: 2px solid #333; border-radius: 2px; overflow: visible; }
-.card-title { font-weight: bold; font-size: 15px; text-align: center; padding: 6px 4px; border-bottom: 1px solid #999; }
-.card-body { display: flex; }
-.box-list { flex: 1; border-right: 1px solid #ccc; }
-.box-row { display: flex; height: var(--row-h); align-items: center; border-bottom: 1px solid #e0e0e0; font-size: 12px; }
-.box-header { font-weight: bold; background: #f5f5f5; border-bottom: 1px solid #999; }
-.box-header .box-cell { font-size: 14px; font-weight: 800; color: #111; }
+button:focus-visible, input:focus-visible {
+  outline: 2px solid var(--accent); outline-offset: 1px;
+}
+.btn-ghost { background: transparent; color: var(--text-muted); border-color: var(--border); }
+.btn-ghost:hover { background: var(--accent-soft); color: var(--accent); border-color: var(--accent-soft); }
+.btn-primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+.btn-primary:hover { background: var(--accent-hover); border-color: var(--accent-hover); }
+
+input[type=text], input[type=number] {
+  border: 1px solid var(--border-strong); border-radius: var(--radius-sm);
+  padding: 6px 8px; font-size: 14px; color: var(--text); background: var(--surface);
+}
+
+/* --- Settings panels --------------------------------------------------- */
+.settingsPanel {
+  padding: 14px; background: var(--surface); border-bottom: 1px solid var(--border);
+  font-size: 13px; box-shadow: var(--shadow);
+}
+.settingsPanel .swatchRow { display: flex; align-items: center; gap: 8px; margin: 10px 0; flex-wrap: wrap; }
+.settingsPanel input[type=color] { width: 36px; height: 32px; padding: 0; border: 1px solid var(--border-strong); border-radius: 4px; }
+.settingsPanel input[type=text] { width: 110px; height: 32px; }
+.settingsPanel input[type=number] { width: 56px; height: 32px; }
+.settingsPanel button { padding: 6px 12px; font-size: 13px; }
+
+/* --- Empty state --------------------------------------------------------*/
+.empty-state {
+  max-width: 420px; margin: 48px auto; padding: 28px 22px; text-align: center;
+  background: var(--surface); border: 1px dashed var(--border-strong); border-radius: var(--radius);
+}
+.empty-title { font-size: 15px; font-weight: 700; color: var(--text); margin: 0 0 6px; }
+.empty-sub { font-size: 13px; color: var(--text-muted); margin: 0; }
+
+/* --- Card grid ----------------------------------------------------------
+   grid-template-columns is left alone here -- app.js sets it inline
+   (1 column below the 700px breakpoint regardless of "cards per row",
+   matching JS's own DESKTOP_MQL check; the user's actual cards_per_row
+   value only takes effect at/above that same breakpoint). */
+.grid { display: grid; gap: 14px; padding: 12px; }
+.card {
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+  box-shadow: var(--shadow); overflow: hidden; display: flex;
+}
+.card-title {
+  font-weight: 700; font-size: 14px; text-align: center; padding: 10px 8px;
+  background: var(--accent-soft); border-bottom: 1px solid var(--border);
+  letter-spacing: 0.01em;
+}
+.card-body { display: flex; flex-direction: column; }
+.box-list { border-bottom: 1px solid var(--border); }
+.box-row { display: flex; height: var(--row-h); align-items: center; border-bottom: 1px solid #edeef3; font-size: 13px; }
+.box-header { font-weight: 700; background: #f8f8fb; border-bottom: 1px solid var(--border-strong); }
+.box-header .box-cell { font-size: 11px; font-weight: 800; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.04em; }
 /* The Splay/CKT columns stretch their body-row cells to the full row
    height (so the splay badge can sit on the border, and the circuit-set
    stripe can run the row's full height) -- but that same stretch, if left
@@ -28,10 +139,13 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
    needs the stretch (no badge/stripe lives there), so it's reset back to
    normal here, keeping "Splay"/"CKT" vertically aligned with "Cab" etc. */
 .box-header .field-angle, .box-header .field-circuit { align-self: auto; }
-.box-cell { flex: 1; text-align: center; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 0 2px; }
-.field-label { flex: 0 0 30px; }
+.box-cell { flex: 1; text-align: center; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 0 3px; }
+.field-label { flex: 0 0 32px; }
 .field-model { flex: 1.6; }
-.ckt-input { width: 34px; text-align: center; font-size: 12px; border: 1px solid #bbb; border-radius: 3px; background: #fff; color: #000 !important; }
+.ckt-input {
+  width: 44px; height: 32px; text-align: center; font-size: 14px; font-weight: 800;
+  border: 1px solid var(--border-strong); border-radius: var(--radius-sm); background: #fff; color: #000 !important;
+}
 /* Splay is the most important value on the card, so its column is
    narrow (less horizontal space spent on it) but the cell itself is
    STRETCHED to the row's full height via align-self -- .box-row only
@@ -42,7 +156,7 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
    the box above. Stretching this one cell to the full row height fixes
    that: its top edge now IS the row's top edge, i.e. the actual border
    line shared with the box above. */
-.field-angle { flex: 0 0 38px; align-self: stretch; position: relative; overflow: visible; }
+.field-angle { flex: 0 0 46px; align-self: stretch; position: relative; overflow: visible; }
 /* field-circuit is positioned so the stripe can pin itself to one edge
    of the column, entirely independent of the CKT input's own centering
    -- the two used to share one flex row, which pushed the CKT number
@@ -52,7 +166,7 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 .field-circuit { align-self: stretch; position: relative; }
 .circuit-set-stripe {
   position: absolute; left: 0; top: 0; bottom: -1px;
-  width: 12px; border-radius: 0;
+  width: 16px; border-radius: 0;
   /* bottom: -1px reaches one pixel past this row's own bottom border,
      covering that row's border-bottom line exactly where the stripe
      sits -- so two vertically-adjacent rows in the same breakout group
@@ -61,10 +175,10 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 }
 .splay-value {
   position: absolute; top: 0; left: 50%; transform: translate(-50%, -50%);
-  width: 34px; height: 20px; box-sizing: border-box;
+  width: 42px; height: 26px; box-sizing: border-box;
   display: flex; align-items: center; justify-content: center;
-  background: #fff; border: 1px solid #333; border-radius: 3px;
-  font-size: 11px; line-height: 1; white-space: nowrap; z-index: 2;
+  background: #fff; border: 1px solid var(--text); border-radius: var(--radius-sm);
+  font-size: 13px; line-height: 1; white-space: nowrap; z-index: 2;
   /* Always dark text on this badge's own opaque white background,
      regardless of the row's circuit-color text color (which is set for
      contrast against a colored ROW background, not this badge's white
@@ -84,53 +198,60 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 .value-chip {
   display: inline-flex; align-items: center; justify-content: center;
   width: 100%; max-width: 100%; box-sizing: border-box;
-  background: #fff; border: 1px solid #bbb; border-radius: 3px;
-  padding: 2px 6px; color: #000 !important;
+  background: #fff; border: 1px solid var(--border-strong); border-radius: var(--radius-sm);
+  padding: 4px 6px; color: #000 !important;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-.meta-col { flex: 0 0 150px; font-size: 11px; display: flex; flex-wrap: wrap; align-content: flex-start; gap: 4px; padding: 4px; }
+.meta-col { font-size: 13px; display: flex; flex-wrap: wrap; align-content: flex-start; gap: 6px; padding: 10px; }
 /* Label and value share one line ("Aim: +/- 5deg") instead of stacking
    on two -- and the whole metadata block wraps as many of these compact
    chips per line as fit, instead of one full-width row per field, which
    is what was making the metadata column so much taller than it needed
    to be. */
-.meta-row { display: flex; flex-direction: row; align-items: baseline; gap: 3px; background: #f7f7f7; border-radius: 3px; padding: 2px 6px; white-space: nowrap; }
-.meta-label { font-weight: 800; font-size: 12px; color: #222; }
+.meta-row { display: flex; flex-direction: row; align-items: baseline; gap: 4px; background: #f6f7fb; border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 4px 8px; white-space: nowrap; }
+.meta-label { font-weight: 700; font-size: 13px; color: var(--text-muted); }
 .meta-label::after { content: ':'; }
-.meta-value { font-size: 15px; font-weight: 600; color: #000; }
+.meta-value { font-size: 17px; font-weight: 700; color: var(--text); }
 /* Hang identity stripe: a real proportioned band (not just a thin
    border line) along the card's left edge, sized as a percentage of the
    card's own width so it stays prominent whether the card is one of
    several side by side on desktop or full-width on a phone. */
-.card { display: flex; }
-.hang-stripe-bar { flex: 0 0 7%; align-self: stretch; }
+.hang-stripe-bar { flex: 0 0 3.5%; align-self: stretch; }
 .card-content { flex: 1; min-width: 0; }
 
-/* --- Phone-sized screens --------------------------------------------
-   Cards stack one per row regardless of the "cards per row" setting
-   (side-by-side cards would be unreadably narrow on a phone), box list
-   and metadata stack vertically instead of sitting side by side, and
-   every tappable control (buttons, the CKT input, color swatches) grows
-   to a comfortable touch-target size instead of the mouse-sized one used
-   on desktop. */
-@media (max-width: 700px) {
-  .grid { grid-template-columns: 1fr !important; gap: 12px; padding: 10px; }
-  .card-body { flex-direction: column; }
-  .box-list { border-right: none; border-bottom: 1px solid #ccc; }
-  .meta-col { flex: 1 1 auto; }
-  .meta-label { font-size: 13px; }
-  .meta-value { font-size: 17px; }
-  .toolbar { padding: 10px; gap: 10px; }
-  .toolbar input[type=number] { width: 56px; height: 30px; font-size: 14px; }
-  button { padding: 10px 14px; font-size: 14px; }
-  :root { --row-h: 36px; }
-  .box-cell { font-size: 13px; }
-  .ckt-input { width: 44px; height: 30px; font-size: 14px; }
-  .value-chip { padding: 4px 6px; }
-  .circuit-set-stripe { width: 16px; }
-  .field-angle { flex: 0 0 46px; }
-  .splay-value { width: 42px; height: 26px; font-size: 13px; }
-  .settingsPanel input[type=color] { width: 36px; height: 32px; }
-  .settingsPanel input[type=text] { width: 100px; height: 30px; font-size: 14px; }
-  .settingsPanel input[type=number] { width: 56px; height: 30px; font-size: 14px; }
+/* --- Desktop enhancements ---------------------------------------------
+   Above this width, cards sit several to a row (per the "cards per row"
+   setting -- see app.js's DESKTOP_MQL), box-list and metadata sit side by
+   side instead of stacked, and every control shrinks back down from a
+   touch target to a mouse-sized one. */
+@media (min-width: 700px) {
+  :root { --row-h: 28px; }
+  .toolbar { padding: 10px 20px; gap: 20px; }
+  .toolbar-fields { gap: 16px; }
+  .upload-label input[type=file] { max-width: 210px; }
+  .field-inline input[type=number] { width: 50px; height: auto; font-size: 13px; }
+  button { padding: 7px 14px; font-size: 13px; }
+  input[type=text], input[type=number] { padding: 5px 8px; font-size: 13px; }
+  .settingsPanel { padding: 16px 20px; }
+  .settingsPanel input[type=color] { width: 28px; height: 24px; }
+  .settingsPanel input[type=text] { width: 90px; height: auto; }
+  .settingsPanel input[type=number] { height: auto; }
+  .settingsPanel button { padding: 4px 10px; font-size: 12px; }
+  .empty-state { margin: 64px auto; padding: 32px 28px; }
+
+  .grid { gap: 18px; padding: 20px; }
+  .card-body { flex-direction: row; }
+  .box-list { flex: 1; border-right: 1px solid var(--border); border-bottom: none; }
+  .box-cell { padding: 0 2px; }
+  .box-row { font-size: 12px; }
+  .field-label { flex: 0 0 30px; }
+  .ckt-input { width: 34px; height: auto; font-size: 12px; }
+  .field-angle { flex: 0 0 38px; }
+  .circuit-set-stripe { width: 12px; }
+  .splay-value { width: 34px; height: 20px; font-size: 11px; }
+  .value-chip { padding: 2px 6px; }
+  .meta-col { flex: 0 0 150px; font-size: 11px; }
+  .meta-label { font-size: 12px; }
+  .meta-value { font-size: 15px; }
+  .hang-stripe-bar { flex: 0 0 7%; }
 }

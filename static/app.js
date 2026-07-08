@@ -15,6 +15,14 @@ let STATE = null;
 // downloading a copy doesn't touch the shared job.
 const VIEW_ONLY = new URLSearchParams(location.search).get('view') === '1';
 
+// The card grid is mobile-first: below this width cards always stack one
+// per row (a "cards per row" setting of 2+ would be unreadably narrow on a
+// phone), regardless of the user's cards_per_row preference -- only above
+// it does that preference actually take effect. Re-renders on cross-over
+// so rotating a phone or resizing a window updates the layout live.
+const DESKTOP_MQL = window.matchMedia('(min-width: 700px)');
+DESKTOP_MQL.addEventListener('change', () => render());
+
 async function loadState() {
   const res = await fetch('/api/state');
   STATE = await res.json();
@@ -156,7 +164,7 @@ function render() {
 
   document.getElementById('cardsPerRow').value = STATE.cards_per_row;
   grid.innerHTML = '';
-  grid.style.gridTemplateColumns = `repeat(${STATE.cards_per_row}, 1fr)`;
+  grid.style.gridTemplateColumns = DESKTOP_MQL.matches ? `repeat(${STATE.cards_per_row}, 1fr)` : '1fr';
 
   const cfg = STATE.circuit_color_config || {};
   const cycleLen = Math.max(1, Math.min(cfg.cycle_length || 4, (cfg.circuit_colors || []).length || 1));
@@ -308,7 +316,13 @@ function renderCard(section, cfg, activePalette, cycleLen) {
     row.appendChild(l); row.appendChild(v);
     meta.appendChild(row);
   }
+  // A metadata field with no value is just an empty label chip floating in
+  // the column -- skip it entirely instead of rendering "Aim:" with
+  // nothing after it, so the column only ever shows fields this section
+  // actually has data for.
   (STATE.metadata_fields || []).forEach(({label, key}) => {
+    const val = section.metadata ? section.metadata[key] : undefined;
+    if (val === undefined || val === null || val === '') return;
     const row = document.createElement('div');
     row.className = 'meta-row';
     const l = document.createElement('div');
@@ -316,8 +330,7 @@ function renderCard(section, cfg, activePalette, cycleLen) {
     l.textContent = label;
     const v = document.createElement('div');
     v.className = 'meta-value';
-    const val = section.metadata ? section.metadata[key] : undefined;
-    v.textContent = (val === undefined || val === null) ? '' : val;
+    v.textContent = val;
     row.appendChild(l); row.appendChild(v);
     meta.appendChild(row);
   });

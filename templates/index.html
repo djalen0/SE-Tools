@@ -2,32 +2,38 @@
 <html>
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Pinning Sheet Editor</title>
 <link rel="manifest" href="{{ url_for('static', filename='manifest.json') }}">
-<meta name="theme-color" content="#333333">
+<meta name="theme-color" content="#4f46e5">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="Pinning Sheets">
 <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 <body>
 <div class="toolbar">
-  <strong>Pinning Sheet Editor</strong>
-  <span id="viewOnlyBanner" style="display:none; font-weight:bold; color:#a00;">(view only)</span>
-  <label id="uploadLabel">Upload sheet: <input id="uploadInput" type="file" accept=".pdf,.txt"></label>
-  <label>Cards per row: <input id="cardsPerRow" type="number" min="1" max="6"></label>
-  <button id="saveBtn">Save</button>
-  <button id="exportBtn">Export to Excel</button>
-  <button id="colorToggleBtn">Colors...</button>
-  <button id="numberingToggleBtn">Circuit Numbering...</button>
-  <span id="statusMsg"></span>
+  <div class="toolbar-brand">
+    <strong>Pinning Sheet Editor</strong>
+    <span id="viewOnlyBanner" class="badge-view-only" style="display:none;">View only</span>
+  </div>
+  <div class="toolbar-fields">
+    <label id="uploadLabel" class="upload-label">Upload sheet<input id="uploadInput" type="file" accept=".pdf,.txt"></label>
+    <label class="field-inline">Cards per row<input id="cardsPerRow" type="number" min="1" max="6"></label>
+  </div>
+  <div class="toolbar-actions">
+    <button id="colorToggleBtn" class="btn btn-ghost">Colors&hellip;</button>
+    <button id="numberingToggleBtn" class="btn btn-ghost">Circuit Numbering&hellip;</button>
+    <button id="saveBtn" class="btn">Save</button>
+    <button id="exportBtn" class="btn btn-primary">Export to Excel</button>
+  </div>
+  <span id="statusMsg" class="status-msg"></span>
 </div>
 <div id="colorPanel" class="settingsPanel" style="display:none;"></div>
 <div id="numberingPanel" class="settingsPanel" style="display:none;"></div>
 <div id="root">
-  <div id="emptyState" style="display:none; padding:40px; text-align:center; color:#666;">
-    <p>No pinning sheet loaded yet.</p>
-    <p>Upload a PDF or .txt export using the button above to get started.</p>
+  <div id="emptyState" class="empty-state" style="display:none;">
+    <p class="empty-title">No pinning sheet loaded yet</p>
+    <p class="empty-sub">Upload a PDF or .txt export using the button above to get started.</p>
   </div>
   <div class="grid" id="grid"></div>
 </div>
