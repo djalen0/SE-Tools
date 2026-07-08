@@ -1,0 +1,45 @@
+{
+  "breakout_cable_name": "Hi-D",
+  "circuit_colors": [
+    "FF995900",
+    "FFFF0000",
+    "FFFF7B00",
+    "FFFFD500",
+    "FF7ACB5F",
+    "FF789DDA",
+    "FFC056FA",
+    "FFAAAAAA"
+  ],
+  "circuit_set_colors": [
+    "FFC78223",
+    "FFE16666",
+    "FFFF8B35",
+    "FFFFDE40",
+    "FF7ACB5F",
+    "FF789DDA",
+    "FFC056FA"
+  ],
+  "circuit_set_enabled": true,
+  "cycle_length": 4,
+  "enabled": true,
+  "hang_colors": [
+    {
+      "fill": "FF000000",
+      "match": "main"
+    },
+    {
+      "fill": "FF8F8F8F",
+      "match": "side"
+    },
+    {
+      "fill": "FFF580FF",
+      "match": "rear"
+    },
+    {
+      "fill": "FF40FF00",
+      "match": "co8"
+    }
+  ],
+  "hid_bundle_size": 4,
+  "show_row_fill": false
+}

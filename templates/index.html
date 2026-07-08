@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<title>Pinning Sheet Editor</title>
+<link rel="manifest" href="{{ url_for('static', filename='manifest.json') }}">
+<meta name="theme-color" content="#333333">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Pinning Sheets">
+<link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+<div class="toolbar">
+  <strong>Pinning Sheet Editor</strong>
+  <span id="viewOnlyBanner" style="display:none; font-weight:bold; color:#a00;">(view only)</span>
+  <label id="uploadLabel">Upload sheet: <input id="uploadInput" type="file" accept=".pdf,.txt"></label>
+  <label>Cards per row: <input id="cardsPerRow" type="number" min="1" max="6"></label>
+  <button id="saveBtn">Save</button>
+  <button id="exportBtn">Export to Excel</button>
+  <button id="colorToggleBtn">Colors...</button>
+  <button id="numberingToggleBtn">Circuit Numbering...</button>
+  <span id="statusMsg"></span>
+</div>
+<div id="colorPanel" class="settingsPanel" style="display:none;"></div>
+<div id="numberingPanel" class="settingsPanel" style="display:none;"></div>
+<div id="root">
+  <div id="emptyState" style="display:none; padding:40px; text-align:center; color:#666;">
+    <p>No pinning sheet loaded yet.</p>
+    <p>Upload a PDF or .txt export using the button above to get started.</p>
+  </div>
+  <div class="grid" id="grid"></div>
+</div>
+
+<script src="{{ url_for('static', filename='app.js') }}"></script>
+<script>
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register("{{ url_for('static', filename='sw.js') }}").catch(() => {});
+  });
+}
+</script>
+</body>
+</html>

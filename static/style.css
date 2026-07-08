@@ -1,0 +1,136 @@
+:root { --row-h: 28px; }
+body { font-family: Arial, Helvetica, sans-serif; margin: 0; background: #f2f2f2; color: #222; }
+.toolbar { display: flex; align-items: center; gap: 16px; padding: 10px 16px; background: #fff; border-bottom: 1px solid #ccc; flex-wrap: wrap; }
+.toolbar label { font-size: 13px; }
+.toolbar input[type=number] { width: 50px; }
+.toolbar input[type=file] { font-size: 12px; max-width: 200px; }
+button { cursor: pointer; padding: 6px 12px; border: 1px solid #888; background: #eee; border-radius: 4px; font-size: 13px; }
+button:hover { background: #ddd; }
+button:disabled { opacity: 0.5; cursor: not-allowed; }
+#statusMsg { font-size: 12px; color: #555; }
+.settingsPanel { padding: 10px 16px; background: #fafafa; border-bottom: 1px solid #ddd; font-size: 13px; }
+.settingsPanel .swatchRow { display: flex; align-items: center; gap: 8px; margin: 4px 0; flex-wrap: wrap; }
+.settingsPanel input[type=color] { width: 28px; height: 24px; padding: 0; border: 1px solid #999; }
+.settingsPanel input[type=text] { width: 90px; }
+.grid { display: grid; gap: 16px; padding: 16px; }
+.card { background: #fff; border: 2px solid #333; border-radius: 2px; overflow: visible; }
+.card-title { font-weight: bold; font-size: 15px; text-align: center; padding: 6px 4px; border-bottom: 1px solid #999; }
+.card-body { display: flex; }
+.box-list { flex: 1; border-right: 1px solid #ccc; }
+.box-row { display: flex; height: var(--row-h); align-items: center; border-bottom: 1px solid #e0e0e0; font-size: 12px; }
+.box-header { font-weight: bold; background: #f5f5f5; border-bottom: 1px solid #999; }
+.box-header .box-cell { font-size: 14px; font-weight: 800; color: #111; }
+/* The Splay/CKT columns stretch their body-row cells to the full row
+   height (so the splay badge can sit on the border, and the circuit-set
+   stripe can run the row's full height) -- but that same stretch, if left
+   on the HEADER row too, pins the header text to the top of a full-height
+   box instead of centering it like its sibling headers. The header never
+   needs the stretch (no badge/stripe lives there), so it's reset back to
+   normal here, keeping "Splay"/"CKT" vertically aligned with "Cab" etc. */
+.box-header .field-angle, .box-header .field-circuit { align-self: auto; }
+.box-cell { flex: 1; text-align: center; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 0 2px; }
+.field-label { flex: 0 0 30px; }
+.field-model { flex: 1.6; }
+.ckt-input { width: 34px; text-align: center; font-size: 12px; border: 1px solid #bbb; border-radius: 3px; background: #fff; color: #000 !important; }
+/* Splay is the most important value on the card, so its column is
+   narrow (less horizontal space spent on it) but the cell itself is
+   STRETCHED to the row's full height via align-self -- .box-row only
+   vertically centers its children by default, which left this cell's
+   own top edge sitting at the row's vertical MIDDLE rather than its top
+   edge, so the badge (anchored to this cell's top edge, then shifted up
+   half its own height) was landing mid-row instead of on the border with
+   the box above. Stretching this one cell to the full row height fixes
+   that: its top edge now IS the row's top edge, i.e. the actual border
+   line shared with the box above. */
+.field-angle { flex: 0 0 38px; align-self: stretch; position: relative; overflow: visible; }
+/* field-circuit is positioned so the stripe can pin itself to one edge
+   of the column, entirely independent of the CKT input's own centering
+   -- the two used to share one flex row, which pushed the CKT number
+   off-center the moment a stripe appeared. Now the stripe lives in its
+   own absolutely-positioned layer and the CKT input is centered on the
+   column exactly the same whether or not a stripe is showing. */
+.field-circuit { align-self: stretch; position: relative; }
+.circuit-set-stripe {
+  position: absolute; left: 0; top: 0; bottom: -1px;
+  width: 12px; border-radius: 0;
+  /* bottom: -1px reaches one pixel past this row's own bottom border,
+     covering that row's border-bottom line exactly where the stripe
+     sits -- so two vertically-adjacent rows in the same breakout group
+     (same color) paint as one unbroken column instead of a stack of
+     visibly separate segments. */
+}
+.splay-value {
+  position: absolute; top: 0; left: 50%; transform: translate(-50%, -50%);
+  width: 34px; height: 20px; box-sizing: border-box;
+  display: flex; align-items: center; justify-content: center;
+  background: #fff; border: 1px solid #333; border-radius: 3px;
+  font-size: 11px; line-height: 1; white-space: nowrap; z-index: 2;
+  /* Always dark text on this badge's own opaque white background,
+     regardless of the row's circuit-color text color (which is set for
+     contrast against a colored ROW background, not this badge's white
+     one -- inheriting it made the splay value invisible on colored
+     rows). */
+  color: #000 !important;
+}
+/* Cab#, Splay, and Circuit are the values a rigger actually checks
+   against the physical rig, so they're bolder than Model/NFC. */
+.field-label .value-chip { font-weight: 800; }
+.field-circuit .ckt-input { font-weight: 800; }
+.field-angle .splay-value { font-weight: 800; }
+/* Every other box value (Cab#, Model, NFC) sits in its own white chip
+   too, same family as .ckt-input/.splay-value -- so no cell's text ever
+   has to invert to white for contrast against a colored row background;
+   it always reads as dark text on its own small white box instead. */
+.value-chip {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 100%; max-width: 100%; box-sizing: border-box;
+  background: #fff; border: 1px solid #bbb; border-radius: 3px;
+  padding: 2px 6px; color: #000 !important;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.meta-col { flex: 0 0 150px; font-size: 11px; display: flex; flex-wrap: wrap; align-content: flex-start; gap: 4px; padding: 4px; }
+/* Label and value share one line ("Aim: +/- 5deg") instead of stacking
+   on two -- and the whole metadata block wraps as many of these compact
+   chips per line as fit, instead of one full-width row per field, which
+   is what was making the metadata column so much taller than it needed
+   to be. */
+.meta-row { display: flex; flex-direction: row; align-items: baseline; gap: 3px; background: #f7f7f7; border-radius: 3px; padding: 2px 6px; white-space: nowrap; }
+.meta-label { font-weight: 800; font-size: 12px; color: #222; }
+.meta-label::after { content: ':'; }
+.meta-value { font-size: 15px; font-weight: 600; color: #000; }
+/* Hang identity stripe: a real proportioned band (not just a thin
+   border line) along the card's left edge, sized as a percentage of the
+   card's own width so it stays prominent whether the card is one of
+   several side by side on desktop or full-width on a phone. */
+.card { display: flex; }
+.hang-stripe-bar { flex: 0 0 7%; align-self: stretch; }
+.card-content { flex: 1; min-width: 0; }
+
+/* --- Phone-sized screens --------------------------------------------
+   Cards stack one per row regardless of the "cards per row" setting
+   (side-by-side cards would be unreadably narrow on a phone), box list
+   and metadata stack vertically instead of sitting side by side, and
+   every tappable control (buttons, the CKT input, color swatches) grows
+   to a comfortable touch-target size instead of the mouse-sized one used
+   on desktop. */
+@media (max-width: 700px) {
+  .grid { grid-template-columns: 1fr !important; gap: 12px; padding: 10px; }
+  .card-body { flex-direction: column; }
+  .box-list { border-right: none; border-bottom: 1px solid #ccc; }
+  .meta-col { flex: 1 1 auto; }
+  .meta-label { font-size: 13px; }
+  .meta-value { font-size: 17px; }
+  .toolbar { padding: 10px; gap: 10px; }
+  .toolbar input[type=number] { width: 56px; height: 30px; font-size: 14px; }
+  button { padding: 10px 14px; font-size: 14px; }
+  :root { --row-h: 36px; }
+  .box-cell { font-size: 13px; }
+  .ckt-input { width: 44px; height: 30px; font-size: 14px; }
+  .value-chip { padding: 4px 6px; }
+  .circuit-set-stripe { width: 16px; }
+  .field-angle { flex: 0 0 46px; }
+  .splay-value { width: 42px; height: 26px; font-size: 13px; }
+  .settingsPanel input[type=color] { width: 36px; height: 32px; }
+  .settingsPanel input[type=text] { width: 100px; height: 30px; font-size: 14px; }
+  .settingsPanel input[type=number] { width: 56px; height: 30px; font-size: 14px; }
+}
