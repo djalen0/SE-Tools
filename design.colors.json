@@ -1,5 +1,5 @@
 {
-  "breakout_cable_name": "Hi-D",
+  "breakout_cable_name": "Trunk Cable",
   "circuit_colors": [
     "FF995900",
     "FFFF0000",
@@ -28,7 +28,7 @@
       "match": "main"
     },
     {
-      "fill": "FF8F8F8F",
+      "fill": "FFFFFFFF",
       "match": "side"
     },
     {
@@ -36,10 +36,11 @@
       "match": "rear"
     },
     {
-      "fill": "FF40FF00",
-      "match": "co8"
+      "fill": "FF2F6FED",
+      "match": "sub"
     }
   ],
   "hid_bundle_size": 4,
+  "numbering_mode": "normal",
   "show_row_fill": false
 }

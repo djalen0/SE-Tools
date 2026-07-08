@@ -9,6 +9,10 @@
 const FIELD_LABELS = {label:'Cab', model:'Model', dispersion:'Disp', angle:'Splay', circuit:'CKT', nfc:'NFC'};
 let STATE = null;
 
+// Standard "link" (chain) glyph -- marks two boxes wired to the same
+// circuit (see the circuit-link-icon rendering in renderCard).
+const LINK_ICON_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>';
+
 // Read-only links: open the page as .../?view=1 to hand someone a
 // look-but-don't-touch copy -- everything stays visible, but every input,
 // upload, and Save control is disabled. Export is left enabled since
@@ -163,6 +167,10 @@ function render() {
   emptyState.style.display = 'none';
 
   document.getElementById('cardsPerRow').value = STATE.cards_per_row;
+  const pageHeader = STATE.page_header || {};
+  document.getElementById('showTitleInput').value = pageHeader.title || '';
+  document.getElementById('showVenueInput').value = pageHeader.venue || '';
+  document.getElementById('showDateInput').value = pageHeader.date || '';
   grid.innerHTML = '';
   grid.style.gridTemplateColumns = DESKTOP_MQL.matches ? `repeat(${STATE.cards_per_row}, 1fr)` : '1fr';
 
@@ -274,6 +282,23 @@ function renderCard(section, cfg, activePalette, cycleLen) {
           stripe.style.background = argbToCss(setColor);
           cell.appendChild(stripe);
         }
+        // A link icon on the border shared with the box above, when the
+        // two boxes carry the same circuit (multiple boxes wired to one
+        // circuit) -- same "look at the row above" convention splay-value
+        // uses (i > 0), just keyed on the circuit matching instead of
+        // always showing.
+        if (i > 0) {
+          const prevCab = section.cabinets[i - 1];
+          const curKey = cab._normalCkt !== undefined ? cab._normalCkt : cab.ckt;
+          const prevKey = prevCab._normalCkt !== undefined ? prevCab._normalCkt : prevCab.ckt;
+          if (curKey && prevKey && curKey === prevKey) {
+            const link = document.createElement('div');
+            link.className = 'circuit-link-icon';
+            link.title = 'Shares a circuit with the box above';
+            link.innerHTML = LINK_ICON_SVG;
+            cell.appendChild(link);
+          }
+        }
       } else if (f === 'label') {
         cell.appendChild(makeChip(cab.position));
       } else if (f === 'model') {
@@ -342,7 +367,7 @@ function renderCard(section, cfg, activePalette, cycleLen) {
 
 function renderColorPanel() {
   const panel = document.getElementById('colorPanel');
-  const cfg = STATE.circuit_color_config || (STATE.circuit_color_config = {enabled:false, show_row_fill:true, circuit_colors:[], cycle_length:4, hang_colors:[], circuit_set_enabled:false, circuit_set_colors:[], numbering_mode:'normal', hid_bundle_size:4, breakout_cable_name:'Hi-D'});
+  const cfg = STATE.circuit_color_config || (STATE.circuit_color_config = {enabled:false, show_row_fill:true, circuit_colors:[], cycle_length:4, hang_colors:[], circuit_set_enabled:false, circuit_set_colors:[], numbering_mode:'normal', hid_bundle_size:4, breakout_cable_name:'Trunk Cable'});
   panel.innerHTML = '';
 
   const enabledRow = document.createElement('div');
@@ -370,25 +395,31 @@ function renderColorPanel() {
   rowFillRow.appendChild(document.createTextNode(' Show color across whole row'));
   panel.appendChild(rowFillRow);
 
-  const paletteRow = document.createElement('div');
-  paletteRow.className = 'swatchRow';
-  paletteRow.appendChild(document.createTextNode('Circuit colors:'));
+  const paletteLabel = document.createElement('div');
+  paletteLabel.className = 'panel-label';
+  paletteLabel.textContent = 'Circuit colors';
+  panel.appendChild(paletteLabel);
+  const paletteGrid = document.createElement('div');
+  paletteGrid.className = 'swatch-grid';
   (cfg.circuit_colors || []).forEach((hex, i) => {
+    const item = document.createElement('div');
+    item.className = 'swatch-item';
     const inp = document.createElement('input');
     inp.type = 'color';
     inp.value = argbToCss(hex) || '#cccccc';
     inp.addEventListener('change', e => { cfg.circuit_colors[i] = cssToArgb(e.target.value); render(); saveState(false); });
-    paletteRow.appendChild(inp);
+    item.appendChild(inp);
     const rm = document.createElement('button');
     rm.textContent = 'x';
     rm.addEventListener('click', () => { cfg.circuit_colors.splice(i,1); render(); saveState(false); });
-    paletteRow.appendChild(rm);
+    item.appendChild(rm);
+    paletteGrid.appendChild(item);
   });
+  panel.appendChild(paletteGrid);
   const addColorBtn = document.createElement('button');
   addColorBtn.textContent = '+ color';
   addColorBtn.addEventListener('click', () => { (cfg.circuit_colors = cfg.circuit_colors || []).push('FFCCCCCC'); render(); saveState(false); });
-  paletteRow.appendChild(addColorBtn);
-  panel.appendChild(paletteRow);
+  panel.appendChild(addColorBtn);
 
   const cycleRow = document.createElement('div');
   cycleRow.className = 'swatchRow';
@@ -435,8 +466,8 @@ function renderColorPanel() {
 // (which brand's breakout cable you're plugging into), not a visual one.
 function renderNumberingPanel() {
   const panel = document.getElementById('numberingPanel');
-  const cfg = STATE.circuit_color_config || (STATE.circuit_color_config = {enabled:false, show_row_fill:true, circuit_colors:[], cycle_length:4, hang_colors:[], circuit_set_enabled:false, circuit_set_colors:[], numbering_mode:'normal', hid_bundle_size:4, breakout_cable_name:'Hi-D'});
-  const cableName = cfg.breakout_cable_name || 'Hi-D';
+  const cfg = STATE.circuit_color_config || (STATE.circuit_color_config = {enabled:false, show_row_fill:true, circuit_colors:[], cycle_length:4, hang_colors:[], circuit_set_enabled:false, circuit_set_colors:[], numbering_mode:'normal', hid_bundle_size:4, breakout_cable_name:'Trunk Cable'});
+  const cableName = cfg.breakout_cable_name || 'Trunk Cable';
   panel.innerHTML = '';
 
   const intro = document.createElement('div');
@@ -453,9 +484,9 @@ function renderNumberingPanel() {
   const nameInput = document.createElement('input');
   nameInput.type = 'text';
   nameInput.value = cableName;
-  nameInput.placeholder = 'Hi-D / Socapex / NL8...';
+  nameInput.placeholder = 'Trunk Cable / Socapex / NL8...';
   nameInput.addEventListener('change', e => {
-    cfg.breakout_cable_name = e.target.value.trim() || 'Hi-D';
+    cfg.breakout_cable_name = e.target.value.trim() || 'Trunk Cable';
     render();
     saveState(false);
   });
@@ -466,7 +497,7 @@ function renderNumberingPanel() {
   numberingModeRow.className = 'swatchRow';
   numberingModeRow.appendChild(document.createTextNode('Current numbering:'));
   const modeText = document.createElement('strong');
-  modeText.textContent = cfg.numbering_mode === 'hid' ? cableName : 'Normal';
+  modeText.textContent = cfg.numbering_mode === 'hid' ? cableName : 'normal';
   numberingModeRow.appendChild(modeText);
   panel.appendChild(numberingModeRow);
 
@@ -483,7 +514,7 @@ function renderNumberingPanel() {
 
   const convertBtn = document.createElement('button');
   const goingToHiD = cfg.numbering_mode !== 'hid';
-  convertBtn.textContent = goingToHiD ? `Convert to ${cableName} numbering` : 'Convert back to Normal numbering';
+  convertBtn.textContent = goingToHiD ? `Convert to ${cableName} numbering` : 'Convert back to normal numbering';
   convertBtn.addEventListener('click', () => {
     if (goingToHiD) {
       applyHiDNumbering(STATE.sections, cfg.hid_bundle_size || 4);
@@ -514,25 +545,31 @@ function renderNumberingPanel() {
   setEnabledRow.appendChild(document.createTextNode(` Show ${cableName} stripe`));
   panel.appendChild(setEnabledRow);
 
-  const setPaletteRow = document.createElement('div');
-  setPaletteRow.className = 'swatchRow';
-  setPaletteRow.appendChild(document.createTextNode('Stripe colors:'));
+  const setPaletteLabel = document.createElement('div');
+  setPaletteLabel.className = 'panel-label';
+  setPaletteLabel.textContent = 'Stripe colors';
+  panel.appendChild(setPaletteLabel);
+  const setPaletteGrid = document.createElement('div');
+  setPaletteGrid.className = 'swatch-grid';
   (cfg.circuit_set_colors || []).forEach((hex, i) => {
+    const item = document.createElement('div');
+    item.className = 'swatch-item';
     const inp = document.createElement('input');
     inp.type = 'color';
     inp.value = argbToCss(hex) || '#cccccc';
     inp.addEventListener('change', e => { cfg.circuit_set_colors[i] = cssToArgb(e.target.value); render(); saveState(false); });
-    setPaletteRow.appendChild(inp);
+    item.appendChild(inp);
     const rm = document.createElement('button');
     rm.textContent = 'x';
     rm.addEventListener('click', () => { cfg.circuit_set_colors.splice(i,1); render(); saveState(false); });
-    setPaletteRow.appendChild(rm);
+    item.appendChild(rm);
+    setPaletteGrid.appendChild(item);
   });
+  panel.appendChild(setPaletteGrid);
   const addSetColorBtn = document.createElement('button');
   addSetColorBtn.textContent = '+ color';
   addSetColorBtn.addEventListener('click', () => { (cfg.circuit_set_colors = cfg.circuit_set_colors || []).push('FFCCCCCC'); render(); saveState(false); });
-  setPaletteRow.appendChild(addSetColorBtn);
-  panel.appendChild(setPaletteRow);
+  panel.appendChild(addSetColorBtn);
 }
 
 async function saveState(showStatus) {
@@ -605,8 +642,9 @@ function applyViewOnlyLock() {
   document.getElementById('uploadLabel').style.display = 'none';
   document.getElementById('saveBtn').style.display = 'none';
   document.querySelectorAll('input, select').forEach(el => { el.disabled = true; });
+  const alwaysEnabled = ['exportBtn', 'colorToggleBtn', 'numberingToggleBtn', 'menuToggleBtn', 'menuCloseBtn'];
   document.querySelectorAll('button').forEach(btn => {
-    if (btn.id !== 'exportBtn' && btn.id !== 'colorToggleBtn' && btn.id !== 'numberingToggleBtn') {
+    if (!alwaysEnabled.includes(btn.id)) {
       btn.disabled = true;
     }
   });
@@ -618,6 +656,17 @@ document.getElementById('cardsPerRow').addEventListener('change', e => {
   render();
   saveState(false);
 });
+function bindShowField(inputId, key) {
+  document.getElementById(inputId).addEventListener('change', e => {
+    if (!STATE) return;
+    STATE.page_header = STATE.page_header || {};
+    STATE.page_header[key] = e.target.value;
+    saveState(false);
+  });
+}
+bindShowField('showTitleInput', 'title');
+bindShowField('showVenueInput', 'venue');
+bindShowField('showDateInput', 'date');
 document.getElementById('saveBtn').addEventListener('click', () => saveState(true));
 document.getElementById('exportBtn').addEventListener('click', exportXlsx);
 document.getElementById('colorToggleBtn').addEventListener('click', () => {
@@ -633,5 +682,17 @@ document.getElementById('uploadInput').addEventListener('change', e => {
   if (file) uploadFile(file);
   e.target.value = '';
 });
+
+// On a phone the sidebar is a popup (off-canvas, opened over the cards);
+// on a wide screen it's always-visible, so open/close is a no-op there --
+// see the .sidebar/.sidebar.open rules in style.css for the two states.
+function setMenuOpen(open) {
+  document.getElementById('sidebar').classList.toggle('open', open);
+  document.getElementById('sidebarBackdrop').classList.toggle('visible', open);
+  document.body.classList.toggle('menu-open', open);
+}
+document.getElementById('menuToggleBtn').addEventListener('click', () => setMenuOpen(true));
+document.getElementById('menuCloseBtn').addEventListener('click', () => setMenuOpen(false));
+document.getElementById('sidebarBackdrop').addEventListener('click', () => setMenuOpen(false));
 
 loadState();

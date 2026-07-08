@@ -31,33 +31,66 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
-/* --- Toolbar ---------------------------------------------------------- */
-.toolbar {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 10px;
-  background: var(--surface);
-  border-bottom: 1px solid var(--border);
-  box-shadow: var(--shadow);
-  flex-wrap: wrap;
-  position: sticky;
-  top: 0;
-  z-index: 20;
+/* --- App shell / sidebar menu -------------------------------------------
+   Mobile (default): the sidebar is an off-canvas popup, hidden until the
+   "Menu" button in the slim top bar opens it (see app.js's setMenuOpen) --
+   closed again by the backdrop, the X, or widening the screen past the
+   desktop breakpoint below, where it becomes a permanent side rail instead
+   so the cards never lose vertical space to a horizontal toolbar. */
+.app-shell { min-height: 100vh; }
+.mobile-topbar {
+  display: flex; align-items: center; gap: 12px; padding: 10px 14px;
+  background: var(--surface); border-bottom: 1px solid var(--border); box-shadow: var(--shadow);
+  position: sticky; top: 0; z-index: 30;
 }
-.toolbar-brand { display: flex; align-items: center; gap: 10px; }
-.toolbar-brand strong { font-size: 16px; font-weight: 700; letter-spacing: -0.01em; }
+.mobile-title { font-weight: 700; font-size: 15px; letter-spacing: -0.01em; }
+.menu-toggle { padding: 8px 12px; }
+.sidebar-backdrop {
+  display: none; position: fixed; inset: 0; background: rgba(15, 17, 30, 0.45); z-index: 39;
+}
+.sidebar-backdrop.visible { display: block; }
+body.menu-open { overflow: hidden; }
+.sidebar {
+  position: fixed; top: 0; left: 0; bottom: 0; width: 85vw; max-width: 340px;
+  background: var(--surface); box-shadow: var(--shadow); z-index: 40;
+  transform: translateX(-100%); transition: transform 0.2s ease;
+  overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 14px;
+}
+.sidebar.open { transform: translateX(0); }
+.sidebar-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
+.menu-close { padding: 4px 10px; font-size: 20px; line-height: 1; }
+/* Show title/venue/date: the editor types straight into these, but they're
+   styled with no border/background so they read as plain text rather than
+   a form -- the same look an editor sees and a view-only visitor sees,
+   the only difference being whether the field actually accepts input
+   (applyViewOnlyLock disables them for view-only). */
+.show-info { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0; }
+/* Scoped as ".show-info .show-field" (not just ".show-field") so this
+   beats the generic "input[type=text]" rule's border/background/padding
+   further down the sheet on specificity, regardless of source order. */
+.show-info .show-field {
+  border: none; background: transparent; padding: 2px 0; margin: 0;
+  color: var(--text); font-family: inherit; width: 100%;
+}
+.show-info .show-field::placeholder { color: var(--text-muted); opacity: 0.7; }
+.show-info .show-field:disabled { opacity: 1; cursor: default; -webkit-text-fill-color: var(--text); }
+.show-info .show-title { font-size: 17px; font-weight: 700; letter-spacing: -0.01em; }
+.show-info .show-venue, .show-info .show-date { font-size: 13px; color: var(--text-muted); font-weight: 600; }
+.show-info .show-venue:disabled, .show-info .show-date:disabled { -webkit-text-fill-color: var(--text-muted); }
 .badge-view-only {
+  align-self: flex-start;
   font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em;
   color: #b42318; background: #fef1f0; border: 1px solid #fbd5d1;
   padding: 3px 8px; border-radius: 999px;
 }
-.toolbar-fields { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
-.toolbar-fields label { font-size: 12px; font-weight: 600; color: var(--text-muted); display: flex; align-items: center; gap: 6px; }
-.toolbar-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.upload-label input[type=file] { font-size: 12px; max-width: 180px; color: var(--text); }
-.field-inline input[type=number] { width: 56px; height: 32px; font-size: 14px; }
-.status-msg { font-size: 12px; color: var(--text-muted); font-weight: 600; margin-left: auto; }
+.toolbar-fields { display: flex; flex-direction: column; gap: 12px; }
+.toolbar-fields label { font-size: 12px; font-weight: 600; color: var(--text-muted); display: flex; flex-direction: column; align-items: flex-start; gap: 6px; }
+.toolbar-actions { display: flex; flex-direction: column; gap: 8px; }
+.toolbar-actions button { width: 100%; }
+.upload-label input[type=file] { font-size: 12px; max-width: 100%; color: var(--text); }
+.field-inline input[type=number] { width: 70px; height: 32px; font-size: 14px; }
+.status-msg { font-size: 12px; color: var(--text-muted); font-weight: 600; }
+.main-content { min-width: 0; }
 
 /* --- Buttons ------------------------------------------------------------
    Base rule covers every button on the page, including the ones app.js
@@ -92,16 +125,29 @@ input[type=text], input[type=number] {
   padding: 6px 8px; font-size: 14px; color: var(--text); background: var(--surface);
 }
 
-/* --- Settings panels --------------------------------------------------- */
+/* --- Settings panels -----------------------------------------------------
+   These live inline in the sidebar (opened by the Colors.../Circuit
+   Numbering... toggles), not as a separate full-width dropdown -- just a
+   rule off the rest of the menu, not its own bordered/shadowed card. */
 .settingsPanel {
-  padding: 14px; background: var(--surface); border-bottom: 1px solid var(--border);
-  font-size: 13px; box-shadow: var(--shadow);
+  padding: 12px 0 0; margin-top: 4px; border-top: 1px solid var(--border);
+  font-size: 13px;
 }
 .settingsPanel .swatchRow { display: flex; align-items: center; gap: 8px; margin: 10px 0; flex-wrap: wrap; }
 .settingsPanel input[type=color] { width: 36px; height: 32px; padding: 0; border: 1px solid var(--border-strong); border-radius: 4px; }
 .settingsPanel input[type=text] { width: 110px; height: 32px; }
 .settingsPanel input[type=number] { width: 56px; height: 32px; }
 .settingsPanel button { padding: 6px 12px; font-size: 13px; }
+.panel-label { font-size: 12px; font-weight: 700; color: var(--text-muted); margin: 12px 0 6px; }
+/* A real grid instead of one flex-wrap row -- flex-wrap let a color swatch
+   land at the end of one line and its own remove button wrap to the start
+   of the next, so the two visually split apart ("a smattering of chips
+   spilling out"). Each swatch+remove pair is grouped into one grid item
+   instead, so they always wrap as a unit and line up in even columns. */
+.swatch-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(64px, 1fr)); gap: 8px; margin: 6px 0 10px; }
+.swatch-item { display: flex; align-items: center; gap: 4px; }
+.swatch-item input[type=color] { flex: 1; min-width: 0; width: auto; }
+.swatch-item button { padding: 4px 8px; }
 
 /* --- Empty state --------------------------------------------------------*/
 .empty-state {
@@ -163,10 +209,13 @@ input[type=text], input[type=number] {
    off-center the moment a stripe appeared. Now the stripe lives in its
    own absolutely-positioned layer and the CKT input is centered on the
    column exactly the same whether or not a stripe is showing. */
-.field-circuit { align-self: stretch; position: relative; }
+.field-circuit { align-self: stretch; position: relative; overflow: visible; }
 .circuit-set-stripe {
-  position: absolute; left: 0; top: 0; bottom: -1px;
-  width: 16px; border-radius: 0;
+  /* left: 4px (not flush at 0) -- hugs the CKT column's left edge with a
+     small margin instead of touching it, so the stripe reads as its own
+     element rather than bleeding into the column's border. */
+  position: absolute; left: 4px; top: 0; bottom: -1px;
+  width: 16px; border-radius: 2px;
   /* bottom: -1px reaches one pixel past this row's own bottom border,
      covering that row's border-bottom line exactly where the stripe
      sits -- so two vertically-adjacent rows in the same breakout group
@@ -186,6 +235,19 @@ input[type=text], input[type=number] {
      rows). */
   color: #000 !important;
 }
+/* Sits on the row border shared with the box above, same anchoring trick
+   as .splay-value -- but pinned to the column's own right edge (not
+   centered) so it never sits on top of the CKT input's centered circuit
+   number, regardless of how wide this particular card's CKT column ends
+   up being. */
+.circuit-link-icon {
+  position: absolute; top: 0; right: 2px; transform: translateY(-50%);
+  width: 18px; height: 18px; box-sizing: border-box;
+  display: flex; align-items: center; justify-content: center;
+  background: #fff; border: 1px solid var(--border-strong); border-radius: 999px;
+  color: var(--text-muted); z-index: 2;
+}
+.circuit-link-icon svg { width: 12px; height: 12px; }
 /* Cab#, Splay, and Circuit are the values a rigger actually checks
    against the physical rig, so they're bolder than Model/NFC. */
 .field-label .value-chip { font-weight: 800; }
@@ -202,37 +264,58 @@ input[type=text], input[type=number] {
   padding: 4px 6px; color: #000 !important;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-.meta-col { font-size: 13px; display: flex; flex-wrap: wrap; align-content: flex-start; gap: 6px; padding: 10px; }
+/* A 2-column grid rather than flex-wrap -- flex-wrap sized each chip to
+   its own content, so "Mode: Compression" and "Pick (F): 1" landed at
+   wildly different widths and the whole column looked like a ragged pile
+   of chips instead of a form. Grid columns force every chip in a column
+   to the same width regardless of its own content length. */
+.meta-col { font-size: 13px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-content: start; gap: 6px; padding: 10px; }
 /* Label and value share one line ("Aim: +/- 5deg") instead of stacking
-   on two -- and the whole metadata block wraps as many of these compact
-   chips per line as fit, instead of one full-width row per field, which
-   is what was making the metadata column so much taller than it needed
-   to be. */
-.meta-row { display: flex; flex-direction: row; align-items: baseline; gap: 4px; background: #f6f7fb; border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 4px 8px; white-space: nowrap; }
-.meta-label { font-weight: 700; font-size: 13px; color: var(--text-muted); }
+   on two -- each chip is a grid item, stretched by the grid to fill its
+   column's width evenly rather than sized to its own content. */
+/* flex-wrap + max-width let a long value ("OuterMiddleCardioid", from a
+   real pinning sheet's Pick field) wrap onto its own second line inside
+   the chip instead of overflowing the meta column's width -- with the
+   card's overflow:hidden (for its rounded corners), an overflowing chip
+   would otherwise render as silently clipped/invisible text rather than
+   just an occasionally taller chip. */
+.meta-row { display: flex; flex-direction: row; flex-wrap: wrap; align-items: baseline; gap: 4px; max-width: 100%; background: #f6f7fb; border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 4px 8px; }
+.meta-label { font-weight: 700; font-size: 13px; color: var(--text-muted); white-space: nowrap; }
 .meta-label::after { content: ':'; }
-.meta-value { font-size: 17px; font-weight: 700; color: var(--text); }
+.meta-value { font-size: 17px; font-weight: 700; color: var(--text); overflow-wrap: anywhere; }
 /* Hang identity stripe: a real proportioned band (not just a thin
    border line) along the card's left edge, sized as a percentage of the
    card's own width so it stays prominent whether the card is one of
-   several side by side on desktop or full-width on a phone. */
-.hang-stripe-bar { flex: 0 0 3.5%; align-self: stretch; }
+   several side by side on desktop or full-width on a phone. The border
+   matches the card's own border color -- without it, an unset (or white)
+   stripe color has no edge at all and looks like a rendering glitch
+   rather than an intentional part of the card. */
+.hang-stripe-bar { flex: 0 0 3.5%; align-self: stretch; border-right: 1px solid var(--border); }
 .card-content { flex: 1; min-width: 0; }
 
 /* --- Desktop enhancements ---------------------------------------------
-   Above this width, cards sit several to a row (per the "cards per row"
-   setting -- see app.js's DESKTOP_MQL), box-list and metadata sit side by
-   side instead of stacked, and every control shrinks back down from a
-   touch target to a mouse-sized one. */
+   Above this width, the sidebar stops being a popup and becomes a
+   permanent side rail (see app.js's DESKTOP_MQL, which also switches the
+   card grid to multiple columns at this same breakpoint), cards sit
+   several to a row, box-list and metadata sit side by side instead of
+   stacked, and every control shrinks back down from a touch target to a
+   mouse-sized one. */
 @media (min-width: 700px) {
   :root { --row-h: 28px; }
-  .toolbar { padding: 10px 20px; gap: 20px; }
-  .toolbar-fields { gap: 16px; }
-  .upload-label input[type=file] { max-width: 210px; }
-  .field-inline input[type=number] { width: 50px; height: auto; font-size: 13px; }
+  .app-shell { display: flex; align-items: flex-start; }
+  .mobile-topbar { display: none; }
+  .sidebar-backdrop { display: none !important; }
+  .sidebar {
+    position: sticky; top: 0; left: auto; transform: none !important;
+    width: 260px; flex: 0 0 260px; height: 100vh; box-shadow: none;
+    border-right: 1px solid var(--border); padding: 20px;
+  }
+  .menu-close { display: none; }
+  .main-content { flex: 1; }
+  .upload-label input[type=file] { max-width: 100%; }
+  .field-inline input[type=number] { width: 60px; height: auto; font-size: 13px; }
   button { padding: 7px 14px; font-size: 13px; }
   input[type=text], input[type=number] { padding: 5px 8px; font-size: 13px; }
-  .settingsPanel { padding: 16px 20px; }
   .settingsPanel input[type=color] { width: 28px; height: 24px; }
   .settingsPanel input[type=text] { width: 90px; height: auto; }
   .settingsPanel input[type=number] { height: auto; }
@@ -250,8 +333,12 @@ input[type=text], input[type=number] {
   .circuit-set-stripe { width: 12px; }
   .splay-value { width: 34px; height: 20px; font-size: 11px; }
   .value-chip { padding: 2px 6px; }
-  .meta-col { flex: 0 0 150px; font-size: 11px; }
+  /* Wide enough for two real columns -- at the old 150px, forcing an even
+     2-column grid meant a word as ordinary as "Compression" had nowhere
+     to go but an ugly mid-word break. */
+  .meta-col { flex: 0 0 230px; font-size: 11px; gap: 5px; padding: 8px; }
+  .meta-row { padding: 3px 5px; }
   .meta-label { font-size: 12px; }
-  .meta-value { font-size: 15px; }
+  .meta-value { font-size: 13px; }
   .hang-stripe-bar { flex: 0 0 7%; }
 }

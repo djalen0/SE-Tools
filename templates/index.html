@@ -11,31 +11,48 @@
 <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 <body>
-<div class="toolbar">
-  <div class="toolbar-brand">
-    <strong>Pinning Sheet Editor</strong>
+<div class="app-shell">
+  <div class="mobile-topbar">
+    <button id="menuToggleBtn" class="menu-toggle" aria-label="Open menu">&#9776; Menu</button>
+    <span class="mobile-title">Pinning Sheet Editor</span>
+  </div>
+  <div class="sidebar-backdrop" id="sidebarBackdrop"></div>
+  <aside class="sidebar" id="sidebar">
+    <div class="sidebar-header">
+      <!-- The editor types these in directly; view-only mode disables them
+           (see applyViewOnlyLock) and they're styled to read as plain text
+           either way, not a form -- see .show-field in style.css. -->
+      <div class="show-info">
+        <input id="showTitleInput" class="show-field show-title" type="text" placeholder="Show title" maxlength="120">
+        <input id="showVenueInput" class="show-field show-venue" type="text" placeholder="Venue" maxlength="120">
+        <input id="showDateInput" class="show-field show-date" type="text" placeholder="Date" maxlength="40">
+      </div>
+      <button id="menuCloseBtn" class="menu-close" aria-label="Close menu">&times;</button>
+    </div>
     <span id="viewOnlyBanner" class="badge-view-only" style="display:none;">View only</span>
-  </div>
-  <div class="toolbar-fields">
-    <label id="uploadLabel" class="upload-label">Upload sheet<input id="uploadInput" type="file" accept=".pdf,.txt"></label>
-    <label class="field-inline">Cards per row<input id="cardsPerRow" type="number" min="1" max="6"></label>
-  </div>
-  <div class="toolbar-actions">
-    <button id="colorToggleBtn" class="btn btn-ghost">Colors&hellip;</button>
-    <button id="numberingToggleBtn" class="btn btn-ghost">Circuit Numbering&hellip;</button>
-    <button id="saveBtn" class="btn">Save</button>
-    <button id="exportBtn" class="btn btn-primary">Export to Excel</button>
-  </div>
-  <span id="statusMsg" class="status-msg"></span>
-</div>
-<div id="colorPanel" class="settingsPanel" style="display:none;"></div>
-<div id="numberingPanel" class="settingsPanel" style="display:none;"></div>
-<div id="root">
-  <div id="emptyState" class="empty-state" style="display:none;">
-    <p class="empty-title">No pinning sheet loaded yet</p>
-    <p class="empty-sub">Upload a PDF or .txt export using the button above to get started.</p>
-  </div>
-  <div class="grid" id="grid"></div>
+    <div class="toolbar-fields">
+      <label id="uploadLabel" class="upload-label">Upload sheet<input id="uploadInput" type="file" accept=".pdf,.txt"></label>
+      <label class="field-inline">Cards per row<input id="cardsPerRow" type="number" min="1" max="6"></label>
+    </div>
+    <div class="toolbar-actions">
+      <button id="colorToggleBtn" class="btn btn-ghost">Colors&hellip;</button>
+      <button id="numberingToggleBtn" class="btn btn-ghost">Circuit numbering&hellip;</button>
+      <button id="saveBtn" class="btn">Save</button>
+      <button id="exportBtn" class="btn btn-primary">Export to Excel</button>
+    </div>
+    <span id="statusMsg" class="status-msg"></span>
+    <div id="colorPanel" class="settingsPanel" style="display:none;"></div>
+    <div id="numberingPanel" class="settingsPanel" style="display:none;"></div>
+  </aside>
+  <main class="main-content">
+    <div id="root">
+      <div id="emptyState" class="empty-state" style="display:none;">
+        <p class="empty-title">No pinning sheet loaded yet</p>
+        <p class="empty-sub">Upload a PDF or .txt export using the button above to get started.</p>
+      </div>
+      <div class="grid" id="grid"></div>
+    </div>
+  </main>
 </div>
 
 <script src="{{ url_for('static', filename='app.js') }}"></script>

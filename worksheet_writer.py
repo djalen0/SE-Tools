@@ -41,7 +41,7 @@ def load_circuit_color_config(design_path):
     disabled = {
         'enabled': False, 'circuit_colors': [], 'cycle_length': 4, 'hang_colors': [],
         'circuit_set_enabled': False, 'circuit_set_colors': [],
-        'show_row_fill': True, 'hid_bundle_size': 4, 'breakout_cable_name': 'Hi-D',
+        'show_row_fill': True, 'hid_bundle_size': 4, 'breakout_cable_name': 'Trunk Cable',
     }
     if not design_path:
         return disabled
@@ -75,7 +75,7 @@ def load_circuit_color_config(design_path):
         # file (no matching saved per-file state) is opened.
         'show_row_fill': bool(data.get('show_row_fill', True)),
         'hid_bundle_size': data.get('hid_bundle_size') or 4,
-        'breakout_cable_name': data.get('breakout_cable_name') or 'Hi-D',
+        'breakout_cable_name': data.get('breakout_cable_name') or 'Trunk Cable',
     }
 
 

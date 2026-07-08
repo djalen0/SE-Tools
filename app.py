@@ -131,6 +131,12 @@ def build_job(sections, source_name):
         'circuit_color_config': load_circuit_color_config(DESIGN_PATH if DESIGN_PATH.exists() else None),
         'fields_enabled': fields_enabled,
         'metadata_fields': metadata_fields,
+        # Show title/venue/date: the editor types these in once, viewers see
+        # them as plain text (see the sidebar's show-info fields) -- and
+        # they're the same fields design.xlsx's PAGE_TITLE/PAGE_VENUE/
+        # PAGE_DATE placeholders expect (see export() below), so filling
+        # them in here also carries them through to the exported workbook.
+        'page_header': {'title': '', 'venue': '', 'date': ''},
     }
 
 
@@ -141,6 +147,8 @@ def _apply_incoming(job, data):
         job['cards_per_row'] = data['cards_per_row']
     if 'circuit_color_config' in data:
         job['circuit_color_config'] = data['circuit_color_config']
+    if 'page_header' in data:
+        job['page_header'] = data['page_header']
 
 
 @app.route('/')
@@ -210,9 +218,16 @@ def export():
         design_path = DESIGN_PATH if DESIGN_PATH.exists() else None
         with tempfile.NamedTemporaryFile(suffix='.xlsx', delete=False) as tmp:
             tmp_path = tmp.name
+        page_header = job.get('page_header') or {}
+        page_header_values = {
+            'title': page_header.get('title', ''),
+            'venue': page_header.get('venue', ''),
+            'date': page_header.get('date', ''),
+        }
         try:
             warnings = write_master_workbook(
-                job['sections'], design_path, tmp_path, job.get('cards_per_row', 2)
+                job['sections'], design_path, tmp_path, job.get('cards_per_row', 2),
+                page_header_values=page_header_values,
             )
             with open(tmp_path, 'rb') as f:
                 xlsx_bytes = f.read()
