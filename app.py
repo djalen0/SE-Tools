@@ -43,6 +43,25 @@ LEGACY_JOB_FILE = DATA_DIR / 'current_job.json'  # pre-shows/dates single-job fi
 
 ALLOWED_EXTENSIONS = {'.pdf', '.txt'}
 
+# Lots of sim software names a symmetrical hang pair with a trailing
+# "(Pair)" marker baked right into the hang's own title/header string --
+# redundant once an SE already knows their rig is symmetric, so job.json's
+# strip_pair_labels toggle (see build_job) can strip it back out wherever a
+# hang's header is shown or exported. Only ever strips a trailing marker,
+# not one that happens to appear mid-title, so a hang genuinely named
+# something like "1. Pair of Subs" is left alone.
+PAIR_SUFFIX_RE = re.compile(r'\s*\(\s*pair\s*\)\s*$', re.IGNORECASE)
+
+
+def strip_pair_label(header):
+    return PAIR_SUFFIX_RE.sub('', header or '')
+
+
+# Data Bar (the Mode/Aim/Trim/Angle/etc. panel) placement -- null means "no
+# override, use the automatic width-driven placement" (see the CSS "Data
+# Bar mode" rules), same null-means-inherit convention as hidden_tags_overrides.
+DATA_BAR_MODES = {None, 'side-left', 'side-right', 'bottom', 'hidden'}
+
 # One shared password for the whole tool -- no usernames/accounts, this is
 # a small private crew tool, not a multi-tenant product. Set APP_PASSWORD
 # in the environment for real use (Render/Fly's dashboard, not this file);
@@ -67,7 +86,15 @@ app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(days=30)
 
 @app.before_request
 def require_login():
+    # The password gates EDITING, not viewing -- anyone can browse Home/
+    # Show/Date pages and read their data (GET) without signing in; only
+    # requests that actually change something (POST/PUT/DELETE -- create a
+    # show/date, save state, upload, export) need a session. Every mutating
+    # route in this file is POST, so this one method check covers all of
+    # them without having to list routes out by hand.
     if not request.path.startswith('/api/') or request.path in API_PUBLIC_PATHS:
+        return None
+    if request.method == 'GET':
         return None
     if session.get('authed'):
         return None
@@ -192,17 +219,26 @@ def save_global_settings(job):
     """
     Persist the settings that should carry over into the NEXT date's job
     regardless of which show/date it's created under -- circuit/hang
-    colors, the breakout-cable numbering setup, and cards-per-row. Circuit
-    colors live in design.xlsx's own .colors.json sidecar (same convention
-    worksheet_writer.load_circuit_color_config() reads from); cards_per_row
-    lives in data/prefs.json. Intentionally global rather than per-show --
-    a crew's color/numbering conventions don't usually change show to show.
+    colors, the breakout-cable numbering setup, cards-per-row, and the
+    (Pair)-label-stripping preference. Circuit colors live in design.xlsx's
+    own .colors.json sidecar (same convention
+    worksheet_writer.load_circuit_color_config() reads from); the rest
+    live in data/prefs.json. Intentionally global rather than per-show --
+    an SE's color/numbering/naming conventions don't usually change show to
+    show. hidden_tags_overrides is NOT carried forward here -- unlike these,
+    it's specific to one Date's own quirks, not a standing preference (the
+    show-wide default for that lives on the Show itself, see
+    api_set_show_hidden_tags), so a new Date should always start with none.
     """
     cfg = job.get('circuit_color_config') if job else None
     if cfg is not None:
         colors_path = DESIGN_PATH.with_suffix('.colors.json')
         colors_path.write_text(json.dumps(cfg, indent=2), encoding='utf-8')
-    save_prefs({'cards_per_row': job.get('cards_per_row', 2) if job else 2})
+    save_prefs({
+        'cards_per_row': job.get('cards_per_row', 2) if job else 2,
+        'view_mode': job.get('view_mode', 'grid') if job else 'grid',
+        'strip_pair_labels': job.get('strip_pair_labels', False) if job else False,
+    })
 
 
 def save_job(show_slug, date_slug, job):
@@ -240,6 +276,7 @@ def build_job(sections, source_name, page_header=None):
         'source_file': source_name,
         'sections': sections,
         'cards_per_row': prefs.get('cards_per_row', 2),
+        'view_mode': prefs.get('view_mode', 'grid'),
         'circuit_color_config': load_circuit_color_config(DESIGN_PATH if DESIGN_PATH.exists() else None),
         'fields_enabled': fields_enabled,
         'metadata_fields': metadata_fields,
@@ -251,6 +288,23 @@ def build_job(sections, source_name, page_header=None):
         # api_export below), so they also carry through to the exported
         # workbook.
         'page_header': page_header or {'title': '', 'venue': '', 'date': ''},
+        # Data Tags overrides for THIS Date only (key -> hidden bool) --
+        # takes precedence over the Show's own hidden_tags default, but is
+        # itself overridable per-hang (see each section's own
+        # hidden_tags_overrides, set client-side and passed through
+        # verbatim by _apply_incoming below). Always starts empty; see
+        # save_global_settings for why it isn't carried forward.
+        'hidden_tags_overrides': {},
+        # This Date's own Data Bar placement override, same null-means-
+        # "fall back to the Show default, then automatic" convention as
+        # data_bar_mode on the Show itself (see DATA_BAR_MODES) -- also a
+        # Date-specific setting, not carried forward to a new Date.
+        'data_bar_mode_override': None,
+        # Whether hang headers/titles get their trailing "(Pair)" marker
+        # stripped for display/export -- an SE-wide naming convention, so
+        # (unlike hidden_tags_overrides) it IS carried forward, same as
+        # cards_per_row.
+        'strip_pair_labels': prefs.get('strip_pair_labels', False),
     }
 
 
@@ -259,10 +313,18 @@ def _apply_incoming(job, data):
         job['sections'] = data['sections']
     if 'cards_per_row' in data:
         job['cards_per_row'] = data['cards_per_row']
+    if 'view_mode' in data:
+        job['view_mode'] = data['view_mode']
     if 'circuit_color_config' in data:
         job['circuit_color_config'] = data['circuit_color_config']
     if 'page_header' in data:
         job['page_header'] = data['page_header']
+    if 'hidden_tags_overrides' in data:
+        job['hidden_tags_overrides'] = data['hidden_tags_overrides']
+    if 'data_bar_mode_override' in data and data['data_bar_mode_override'] in DATA_BAR_MODES:
+        job['data_bar_mode_override'] = data['data_bar_mode_override']
+    if 'strip_pair_labels' in data:
+        job['strip_pair_labels'] = data['strip_pair_labels']
 
 
 def migrate_legacy_job():
@@ -336,9 +398,69 @@ def api_create_show():
         existing = {d.name for d in SHOWS_DIR.iterdir() if d.is_dir()}
         slug = unique_slug(slugify(name), existing)
         show_dir(slug).mkdir(parents=True, exist_ok=True)
-        meta = {'name': name, 'slug': slug}
+        # hidden_tags is the SE's show-wide Data Tags default (see
+        # api_set_show_hidden_tags below) -- every Date under this show
+        # inherits it unless that Date (or an individual hang on it)
+        # overrides a given tag. Empty here just means "nothing hidden by
+        # default", same as before this setting existed.
+        # data_bar_mode is the SE's show-wide Data Bar placement default
+        # (see api_set_show_data_bar_mode below) -- one of 'side-left',
+        # 'side-right', 'bottom', 'hidden', or null. Null means "no
+        # override" -- every Date under this show (unless it sets its own
+        # override) falls back to the automatic, card-width-driven
+        # placement that's always existed (side on a wide card, bottom on
+        # a narrower one, hidden below that), not to some other default.
+        meta = {'name': name, 'slug': slug, 'hidden_tags': [], 'data_bar_mode': None}
         show_meta_path(slug).write_text(json.dumps(meta, indent=2), encoding='utf-8')
     return jsonify(meta)
+
+
+@app.route('/api/shows/<show_slug>', methods=['GET'])
+def api_get_show(show_slug):
+    show = get_show(show_slug)
+    if not show:
+        return jsonify({'error': 'Show not found.'}), 404
+    return jsonify(show)
+
+
+@app.route('/api/shows/<show_slug>/hidden-tags', methods=['POST'])
+def api_set_show_hidden_tags(show_slug):
+    data = request.get_json(force=True, silent=True) or {}
+    tags = data.get('hidden_tags')
+    if not isinstance(tags, list):
+        return jsonify({'error': 'hidden_tags must be a list.'}), 400
+    with STATE_LOCK:
+        show = get_show(show_slug)
+        if not show:
+            return jsonify({'error': 'Show not found.'}), 404
+        show['hidden_tags'] = [str(t) for t in tags]
+        show_meta_path(show_slug).write_text(json.dumps(show, indent=2), encoding='utf-8')
+    return jsonify(show)
+
+
+@app.route('/api/shows/<show_slug>/data-bar-mode', methods=['POST'])
+def api_set_show_data_bar_mode(show_slug):
+    data = request.get_json(force=True, silent=True) or {}
+    mode = data.get('data_bar_mode')
+    if mode not in DATA_BAR_MODES:
+        return jsonify({'error': 'Invalid data_bar_mode.'}), 400
+    with STATE_LOCK:
+        show = get_show(show_slug)
+        if not show:
+            return jsonify({'error': 'Show not found.'}), 404
+        show['data_bar_mode'] = mode
+        show_meta_path(show_slug).write_text(json.dumps(show, indent=2), encoding='utf-8')
+    return jsonify(show)
+
+
+@app.route('/api/design-fields', methods=['GET'])
+def api_design_fields():
+    # Same field/metadata list every job's build_job() pulls from -- the
+    # Show page needs it too (to list which Data Tags the SE can set a
+    # show-wide default for) without needing any actual Date's job.json to
+    # exist yet.
+    fields_enabled, metadata_fields = _fields_and_metadata_from_design()
+    return jsonify({'fields_enabled': fields_enabled, 'metadata_fields': metadata_fields})
 
 
 @app.route('/api/shows/<show_slug>/dates', methods=['GET'])
@@ -423,6 +545,12 @@ def api_upload(show_slug, date_slug):
         # from the sidebar) -- an uploaded file replaces the parsed
         # cabinet data, not the show info already attached to this URL.
         job = build_job(sections, file.filename, page_header=existing.get('page_header'))
+        # Data Tags/Data Bar overrides are Date-level preferences, not
+        # something tied to the specific cabinets just replaced -- carry
+        # them forward explicitly, same as page_header above, since
+        # build_job otherwise always starts a fresh job with none set.
+        job['hidden_tags_overrides'] = existing.get('hidden_tags_overrides', {})
+        job['data_bar_mode_override'] = existing.get('data_bar_mode_override')
         save_job(show_slug, date_slug, job)
     return jsonify(job)
 
@@ -447,9 +575,19 @@ def api_export(show_slug, date_slug):
             'venue': page_header.get('venue', ''),
             'date': page_header.get('date', ''),
         }
+        sections_for_export = job['sections']
+        if job.get('strip_pair_labels'):
+            # Shallow per-section copies -- job['sections'] was already
+            # written to disk by save_job above, so mutating a section dict
+            # in place here would be harmless anyway, but copying keeps
+            # this export-only transform from ever being able to touch the
+            # saved job even if that ordering changes later.
+            sections_for_export = [
+                {**s, 'header': strip_pair_label(s.get('header', ''))} for s in job['sections']
+            ]
         try:
             warnings = write_master_workbook(
-                job['sections'], design_path, tmp_path, job.get('cards_per_row', 2),
+                sections_for_export, design_path, tmp_path, job.get('cards_per_row', 2),
                 page_header_values=page_header_values,
             )
             with open(tmp_path, 'rb') as f:

@@ -37,6 +37,11 @@
     </nav>
     <div class="vo-title" id="voTitle"></div>
     <div class="vo-meta" id="voMeta"></div>
+    <!-- The one interactive thing a view-only visitor needs reachable
+         without a hamburger menu/sidebar (neither exists in this mode,
+         see the comment above) -- toggles the same #dataTagsPanel as the
+         sidebar's own Data tags button (see app.js), just from here. -->
+    <button id="dataTagsToggleBtnVO" class="btn btn-ghost vo-data-tags-btn" type="button">Data tags&hellip;</button>
   </div>
   <aside class="sidebar" id="sidebar">
     <div class="sidebar-header">
@@ -62,8 +67,36 @@
     <span id="viewOnlyBanner" class="badge-view-only" style="display:none;">View only</span>
     <div class="toolbar-fields">
       <label id="uploadLabel" class="upload-label">Upload sheet<input id="uploadInput" type="file" accept=".pdf,.txt"></label>
-      <label class="field-inline">Cards per row<input id="cardsPerRow" type="number" min="1" max="6"></label>
+      <label id="cardsPerRowField" class="field-inline">Cards per row<input id="cardsPerRow" type="number" min="1" max="6"></label>
+      <label id="stripPairLabelsField" class="field-checkbox"><input id="stripPairLabelsInput" type="checkbox"> Strip &quot;(Pair)&quot; from hang titles</label>
+      <div class="view-mode-field">
+        View
+        <div class="view-mode-toggle" id="viewModeToggle" role="group" aria-label="View mode">
+          <button type="button" class="view-mode-btn" data-mode="grid">Grid</button>
+          <button type="button" class="view-mode-btn" data-mode="tabs">Tabs</button>
+        </div>
+      </div>
     </div>
+    <!-- For an editor, sets this Date's Data Tags overrides on top of the
+         Show's own default (see the Show page). For a view-only visitor,
+         renders a different, device-local panel instead (see
+         renderDataTagsPanel/renderLocalDataTagsPanel in app.js) -- so
+         unlike Colors/Circuit numbering/Save below, this button itself
+         is never locked. The panel it opens (#dataTagsPanel) isn't
+         nested in here, though -- see the comment by its real location,
+         just above </aside>, for why. -->
+    <div class="toolbar-actions">
+      <button id="dataTagsToggleBtn" class="btn btn-ghost">Data tags&hellip;</button>
+    </div>
+    <!-- This Date's Data Bar (the Mode/Aim/Trim/etc. panel) placement
+         override, on top of the Show's own default -- see
+         renderDataBarPanel in app.js. A shared-job edit like Colors/
+         Circuit numbering/Save, so it's locked for view-only visitors
+         the same way those are (unlike Data tags above). -->
+    <div class="toolbar-actions">
+      <button id="dataBarToggleBtn" class="btn btn-ghost">Data bar&hellip;</button>
+    </div>
+    <div id="dataBarPanel" class="settingsPanel" style="display:none;"></div>
     <div class="toolbar-actions">
       <button id="colorToggleBtn" class="btn btn-ghost">Colors&hellip;</button>
       <button id="numberingToggleBtn" class="btn btn-ghost">Circuit numbering&hellip;</button>
@@ -85,6 +118,20 @@
     <div id="colorPanel" class="settingsPanel" style="display:none;"></div>
     <div id="numberingPanel" class="settingsPanel" style="display:none;"></div>
   </aside>
+  <!-- Deliberately NOT nested inside .sidebar (unlike colorPanel/
+       numberingPanel above) -- .sidebar is entirely display:none for a
+       view-only visitor on mobile (see body.view-only rules), which would
+       take this down with it if it lived in there too, and this is the
+       one settings panel a view-only visitor actually needs to reach
+       (see #dataTagsToggleBtnVO in .view-only-topbar above). Floats as
+       its own popover instead -- see the #dataTagsPanel rules in
+       style.css -- reachable the same way from either trigger button. -->
+  <div id="dataTagsPanel" class="settingsPanel" style="display:none;"></div>
+  <!-- Desktop only -- a single vertically-centered grip that docks at the
+       sidebar/content boundary when open and slides to the screen edge
+       when collapsed (see .sidebar-toggle-tab in style.css); its icon and
+       position are updated together in setSidebarCollapsed (app.js). -->
+  <button id="sidebarToggleTab" class="sidebar-toggle-tab" aria-label="Hide sidebar" title="Hide sidebar">&laquo;</button>
   <main class="main-content">
     <div id="root">
       <!-- Hidden on screen, shown only in @media print (see style.css) --
@@ -96,6 +143,10 @@
         <p class="empty-title">No pinning sheet loaded yet</p>
         <p class="empty-sub">Upload a PDF or .txt export using the button above to get started.</p>
       </div>
+      <!-- Only populated/shown in Tabs view mode (see renderHangTabs in
+           app.js) -- one tab per hang, so a long pinning sheet can be
+           flipped through instead of scrolled. -->
+      <div class="hang-tabs" id="hangTabs" style="display:none;"></div>
       <div class="grid" id="grid"></div>
     </div>
   </main>

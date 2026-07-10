@@ -88,6 +88,23 @@ body {
 }
 .sidebar-backdrop.visible { display: block; }
 body.menu-open { overflow: hidden; }
+/* The lock icon floats at the viewport's own top-right corner (see
+   .auth-lock-btn below), which on a narrow phone lands right on top of
+   the open mobile sidebar's own breadcrumb/date-switcher/close button --
+   its z-index (100) is deliberately above the sidebar's (40) so it's
+   never trapped BEHIND an open overlay, but that also means it was
+   sitting visibly on top of and obscuring that toolbar. Simplest fix:
+   just step out of the way while the sidebar is open -- it's still one
+   tap away (close the menu, or scroll the sidebar itself; nothing here
+   requires the button while editing controls are already in front of
+   you). No desktop media query needed here -- body.menu-open is only
+   ever toggled by the mobile hamburger button (setMenuOpen in app.js),
+   which is itself hidden at desktop widths, so this class never gets
+   applied there in the first place. */
+body.menu-open .auth-lock-btn,
+body.menu-open .auth-popover {
+  display: none;
+}
 .sidebar {
   position: fixed; top: 0; left: 0; bottom: 0; width: 85vw; max-width: 340px;
   background: var(--surface); box-shadow: var(--shadow); z-index: 40;
@@ -98,6 +115,10 @@ body.menu-open { overflow: hidden; }
 .sidebar-header { display: flex; flex-direction: column; gap: 10px; }
 .sidebar-header-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .menu-close { padding: 4px 10px; font-size: 20px; line-height: 1; }
+/* Desktop-only -- mobile already has menuToggleBtn/menuCloseBtn for
+   show/hide, so this stays hidden there and only appears inside the
+   min-width:700px query below. */
+.sidebar-toggle-tab { display: none; }
 /* Show title/venue/date: the editor types straight into these, but they're
    styled with no border/background so they read as plain text rather than
    a form -- the same look an editor sees and a view-only visitor sees,
@@ -151,23 +172,70 @@ body.view-only .view-only-topbar {
 .view-only-topbar .breadcrumb { font-size: 11px; margin-bottom: 3px; }
 .vo-title { font-size: 14px; font-weight: 700; color: var(--text); letter-spacing: -0.01em; }
 .vo-meta { font-size: 11px; color: var(--text-muted); font-weight: 600; }
+.vo-data-tags-btn { margin-top: 8px; padding: 5px 10px; font-size: 12px; width: auto; }
+/* #dataTagsPanel lives outside .sidebar (see the comment on it in
+   index.html) so it has to be its own floating popover rather than an
+   inline block in the sidebar's flow like colorPanel/numberingPanel --
+   positioned to clear whichever header is on screen (.mobile-topbar or
+   .view-only-topbar; both fit under this same top offset). */
+#dataTagsPanel {
+  position: fixed; top: 112px; left: 12px; right: 12px; max-width: 340px; margin: 0 auto;
+  z-index: 45; max-height: 70vh; overflow-y: auto;
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+  box-shadow: var(--shadow); padding: 14px 14px 4px;
+}
 /* Being position:absolute, the topbar doesn't push the grid down on its
    own -- without this, its first card's own title sits right underneath
    it, hidden. Reset back to the normal padding at desktop widths, where
    the topbar itself is hidden again (see the min-width:700px query). */
 body.view-only .grid { padding-top: 76px; }
+/* dataTagsToggleBtn/dataTagsPanel are intentionally NOT in this list --
+   unlike Colors/Circuit numbering/Save, Data Tags now has a real,
+   useful view-only mode of its own (a per-device hide list that never
+   touches the shared job -- see renderLocalDataTagsPanel in app.js), so
+   a view-only visitor needs to be able to reach it. */
 body.view-only .upload-label,
 body.view-only .field-inline,
+body.view-only .field-checkbox,
 body.view-only #colorToggleBtn,
 body.view-only #numberingToggleBtn,
+body.view-only #dataBarToggleBtn,
 body.view-only #saveBtn,
 body.view-only #colorPanel,
-body.view-only #numberingPanel {
+body.view-only #numberingPanel,
+body.view-only #dataBarPanel {
   display: none !important;
 }
 .print-actions { margin-top: 2px; padding-top: 10px; border-top: 1px solid var(--border); }
 .upload-label input[type=file] { font-size: 12px; max-width: 100%; color: var(--text); }
 .field-inline input[type=number] { width: 70px; height: 32px; font-size: 14px; }
+.field-checkbox {
+  font-size: 12px; font-weight: 600; color: var(--text-muted);
+  display: flex; flex-direction: row; align-items: center; gap: 6px;
+}
+/* Same label-above-control shape as .toolbar-fields label, but its own
+   class rather than .field-inline -- unlike Cards-per-row, this is just a
+   viewing preference, not an editing control, so it should stay visible
+   for view-only visitors too (see the body.view-only selector list a few
+   rules up, which .field-inline is swept into). */
+.view-mode-field { font-size: 12px; font-weight: 600; color: var(--text-muted); display: flex; flex-direction: column; align-items: flex-start; gap: 6px; }
+.view-mode-toggle { display: flex; border: 1px solid var(--border-strong); border-radius: var(--radius-sm); overflow: hidden; }
+.view-mode-btn {
+  padding: 6px 14px; font-size: 13px; font-weight: 700; color: var(--text-muted);
+  background: #fff; border: none; border-right: 1px solid var(--border-strong); cursor: pointer;
+}
+.view-mode-btn:last-child { border-right: none; }
+.view-mode-btn.active { background: var(--accent); color: #fff; }
+/* Tabs view: one hang at a time instead of the whole grid -- wraps to a
+   second line rather than a horizontal scrollbar, since a scrollable tab
+   strip is exactly the kind of hidden-affordance UI this feature exists
+   to avoid. */
+.hang-tabs { display: flex; flex-wrap: wrap; gap: 8px; padding: 12px 12px 0; }
+.hang-tab {
+  padding: 7px 14px; font-size: 13px; font-weight: 700; color: var(--text-muted);
+  background: var(--surface); border: 1px solid var(--border-strong); border-radius: 999px; cursor: pointer;
+}
+.hang-tab.active { background: var(--accent); color: #fff; border-color: var(--accent); }
 .status-msg { font-size: 12px; color: var(--text-muted); font-weight: 600; }
 .main-content { min-width: 0; }
 
@@ -227,6 +295,8 @@ input[type=text], input[type=number] {
   border-radius: var(--radius); box-shadow: var(--shadow); padding: 14px 16px; flex-wrap: wrap;
 }
 .new-entity-form input[type=text] { flex: 1; min-width: 160px; }
+.show-settings-toggle { margin-top: 20px; }
+.show-settings-toggle ~ .show-settings-toggle { margin-top: 8px; }
 
 /* --- Login page ---------------------------------------------------------- */
 .login-shell { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 20px; }
@@ -253,6 +323,12 @@ input[type=text], input[type=number] {
   font-size: 13px;
 }
 .settingsPanel .swatchRow { display: flex; align-items: center; gap: 8px; margin: 10px 0; flex-wrap: wrap; }
+.panel-note { font-size: 11px; color: var(--text-muted); margin: 0 0 10px; line-height: 1.4; }
+.show-all-tags-btn { margin-bottom: 8px; }
+.tag-override-row { justify-content: space-between; }
+.tag-override-label { flex: 1 1 auto; min-width: 0; }
+.tag-override-toggle { flex: 0 0 auto; }
+.tag-override-toggle .view-mode-btn { padding: 5px 10px; font-size: 12px; }
 .settingsPanel input[type=color] { width: 36px; height: 32px; padding: 0; border: 1px solid var(--border-strong); border-radius: 4px; }
 .settingsPanel input[type=text] { width: 110px; height: 32px; }
 .settingsPanel input[type=number] { width: 56px; height: 32px; }
@@ -290,15 +366,33 @@ input[type=text], input[type=number] {
 .card {
   background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
   box-shadow: var(--shadow); overflow: hidden; display: flex;
+  /* Lets the Data Tags column react to the CARD's own rendered width (see
+     the "pin-card" @container rules below) instead of the viewport's --
+     a card can end up narrow either because the window is narrow or
+     because "Cards per row" is set high on a wide window, and it should
+     collapse to single-column/hidden tags the same way either way. */
+  container-type: inline-size; container-name: pin-card;
 }
 .card-title {
-  font-weight: 700; font-size: 14px; text-align: center; padding: 10px 8px;
+  display: flex; align-items: center; justify-content: center; gap: 6px;
+  font-weight: 700; font-size: 14px; padding: 10px 8px;
   background: var(--accent-soft); border-bottom: 1px solid var(--border);
   letter-spacing: 0.01em;
 }
+.card-title-text { flex: 1 1 auto; text-align: center; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Hidden by default -- only shown by the narrow "pin-card" @container
+   rule below, exactly when Data Tags have actually been hidden and need
+   a way back. */
+.meta-toggle-btn {
+  display: none; flex: 0 0 auto; align-items: center; justify-content: center;
+  font-size: 11px; font-weight: 700; color: var(--accent); background: #fff;
+  border: 1px solid var(--border-strong); border-radius: 999px; padding: 3px 10px;
+  cursor: pointer;
+}
+.card.meta-expanded .meta-toggle-btn { background: var(--accent); color: #fff; border-color: var(--accent); }
 .card-body { display: flex; flex-direction: column; }
 .box-list { border-bottom: 1px solid var(--border); }
-.box-row { display: flex; height: var(--row-h); align-items: center; border-bottom: 1px solid #edeef3; font-size: 13px; }
+.box-row { display: flex; height: var(--row-h); align-items: center; border-bottom: 1px solid #edeef3; font-size: 13px; padding: 0 10px; box-sizing: border-box; }
 .box-header { font-weight: 700; background: #f8f8fb; border-bottom: 1px solid var(--border-strong); }
 .box-header .box-cell { font-size: 11px; font-weight: 800; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.04em; }
 /* The Splay/CKT columns stretch their body-row cells to the full row
@@ -311,7 +405,7 @@ input[type=text], input[type=number] {
 .box-header .field-angle, .box-header .field-circuit { align-self: auto; }
 .box-cell { flex: 1; text-align: center; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 0 3px; }
 .field-label { flex: 0 0 32px; }
-.field-model { flex: 1.6; }
+.field-model { flex: 1.6; max-width: 150px; }
 .ckt-input {
   width: 44px; height: 32px; text-align: center; font-size: 14px; font-weight: 800;
   border: 1px solid var(--border-strong); border-radius: var(--radius-sm); background: #fff; color: #000 !important;
@@ -327,18 +421,21 @@ input[type=text], input[type=number] {
    that: its top edge now IS the row's top edge, i.e. the actual border
    line shared with the box above. */
 .field-angle { flex: 0 0 46px; align-self: stretch; position: relative; overflow: visible; }
-/* field-circuit is positioned so the stripe can pin itself to one edge
-   of the column, entirely independent of the CKT input's own centering
-   -- the two used to share one flex row, which pushed the CKT number
-   off-center the moment a stripe appeared. Now the stripe lives in its
-   own absolutely-positioned layer and the CKT input is centered on the
-   column exactly the same whether or not a stripe is showing. */
-.field-circuit { align-self: stretch; position: relative; overflow: visible; }
+/* field-circuit just centers the wrap (see .ckt-wrap below) -- the stripe
+   and link icon no longer position off this cell at all, so this column
+   can be as wide as it likes (to fit NFC/link icon etc.) without dragging
+   them away from the actual CKT square. */
+.field-circuit { align-self: stretch; text-align: center; overflow: visible; max-width: 100px; }
+/* Sized to the CKT input itself (inline-block hugs its child's width)
+   rather than the column -- the stripe and link icon anchor to THIS box,
+   not .field-circuit, so they always hug the actual square regardless of
+   how much extra room the column has. */
+.ckt-wrap { position: relative; display: inline-block; height: 100%; }
 .circuit-set-stripe {
-  /* left: 4px (not flush at 0) -- hugs the CKT column's left edge with a
-     small margin instead of touching it, so the stripe reads as its own
-     element rather than bleeding into the column's border. */
-  position: absolute; left: 4px; top: 0; bottom: -1px;
+  /* left: -20px -- sits just outside the wrap's own left edge (a 4px gap
+     before the stripe, same margin as before) so it hugs the CKT square
+     directly instead of the column it happens to sit in. */
+  position: absolute; left: -20px; top: 0; bottom: -1px;
   width: 16px; border-radius: 2px;
   /* bottom: -1px reaches one pixel past this row's own bottom border,
      covering that row's border-bottom line exactly where the stripe
@@ -360,12 +457,11 @@ input[type=text], input[type=number] {
   color: #000 !important;
 }
 /* Sits on the row border shared with the box above, same anchoring trick
-   as .splay-value -- but pinned to the column's own right edge (not
-   centered) so it never sits on top of the CKT input's centered circuit
-   number, regardless of how wide this particular card's CKT column ends
-   up being. */
+   as .splay-value -- pinned just outside the CKT wrap's own right edge (a
+   2px gap) so it hugs the actual square instead of drifting off toward
+   the column's outer edge on any card whose CKT column has extra room. */
 .circuit-link-icon {
-  position: absolute; top: 0; right: 2px; transform: translateY(-50%);
+  position: absolute; top: 0; right: -20px; transform: translateY(-50%);
   width: 18px; height: 18px; box-sizing: border-box;
   display: flex; align-items: center; justify-content: center;
   background: #fff; border: 1px solid var(--border-strong); border-radius: 999px;
@@ -393,7 +489,17 @@ input[type=text], input[type=number] {
    wildly different widths and the whole column looked like a ragged pile
    of chips instead of a form. Grid columns force every chip in a column
    to the same width regardless of its own content length. */
-.meta-col { font-size: 13px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-content: start; gap: 6px; padding: 10px; }
+/* Single column by default -- this is the right choice whenever the Data
+   Bar sits BELOW the cabinet list (mobile's default stacked layout, or
+   Bottom mode) rather than beside it, since there's no shared row height
+   to conserve: every tag gets its own full-width row, with plenty of
+   room to stay inline as "Label: value" (see fixupMetaChipLayout, which
+   groups rows for the inline/stacked decision by however many columns
+   are actually in play here). 2-column packing only earns its keep when
+   the Data Bar is squeezed beside a possibly-tall cabinet list and
+   height, not width, is the scarce resource -- see the row-layout
+   override in the min-width:700px block below. */
+.meta-col { font-size: 13px; display: grid; grid-template-columns: 1fr; align-content: start; gap: 6px; padding: 10px; }
 /* Label and value share one line ("Aim: +/- 5deg") instead of stacking
    on two -- each chip is a grid item, stretched by the grid to fill its
    column's width evenly rather than sized to its own content. */
@@ -407,22 +513,94 @@ input[type=text], input[type=number] {
 .meta-row {
   display: flex; flex-direction: row; flex-wrap: nowrap; align-items: baseline; gap: 4px;
   max-width: 100%; background: #f6f7fb; border: 1px solid var(--border); border-radius: var(--radius-sm);
-  padding: 4px 8px; overflow: hidden;
+  padding: 4px 8px; overflow: visible; position: relative;
 }
-.meta-row.meta-row-stacked { flex-direction: column; align-items: flex-start; gap: 1px; overflow: visible; }
+.meta-row.meta-row-stacked { flex-direction: column; align-items: flex-start; gap: 1px; }
+/* Per-tag "hide this" -- a local display preference (see hiddenTags in
+   app.js), not an edit to the shared job, so it's never swept up by
+   applyViewOnlyLock's view-only/anonymous-visitor disabling and stays
+   faint-but-present rather than hover-only, since a viewer on a touch
+   device has no hover to reveal it with. */
+.meta-row-hide-btn {
+  position: absolute; top: -6px; right: -6px; width: 16px; height: 16px;
+  display: flex; align-items: center; justify-content: center; padding: 0;
+  font-size: 12px; line-height: 1; color: var(--text-muted);
+  background: #fff; border: 1px solid var(--border-strong); border-radius: 999px;
+  opacity: 0.55; cursor: pointer; z-index: 1;
+}
+.meta-row-hide-btn:hover, .meta-row-hide-btn:focus { opacity: 1; color: #b42318; }
+/* Only rendered at all once something's hidden (see renderCard in
+   app.js) -- spans both grid columns of .meta-col so it reads as a
+   header bar sitting over the tag chips, not another chip-sized item
+   competing with them in the grid. */
+.meta-show-all-btn {
+  grid-column: 1 / -1; text-align: center;
+  font-size: 11px; font-weight: 700; color: var(--accent);
+  background: var(--accent-soft); border: 1px dashed var(--accent); border-radius: var(--radius-sm);
+  padding: 4px 8px; cursor: pointer; margin-bottom: 2px;
+}
+.meta-show-all-btn:hover { background: var(--accent); color: #fff; border-style: solid; }
 .meta-label { font-weight: 700; font-size: 13px; color: var(--text-muted); white-space: nowrap; flex: 0 0 auto; }
 .meta-label::after { content: ':'; }
-/* Inline (default): truncate with an ellipsis as a last resort -- should
-   rarely actually trigger, since a chip only stays inline because the
-   measurement pass found its content fits. Stacked: no truncation, full
-   wrap -- a value like "OuterMiddleCardioid" (a real pinning sheet's Pick
-   field) needs somewhere to go other than silently overflowing the
-   card's own overflow:hidden (used for its rounded corners). */
+/* This is metadata a rigger relies on, so it never gets silently cut off
+   -- inline (default) wraps onto a second line rather than truncating
+   with an ellipsis; the measurement pass (fixupMetaChipLayout) still
+   switches the whole pair to the stacked label-above-value layout when
+   it's the nicer-looking option, but wrapping in place is the guaranteed
+   fallback either way, not a last resort that can go stale. */
 .meta-value {
   font-size: 17px; font-weight: 700; color: var(--text); flex: 1 1 auto; min-width: 0;
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  white-space: normal; overflow-wrap: anywhere;
 }
-.meta-row.meta-row-stacked .meta-value { white-space: normal; overflow: visible; text-overflow: clip; overflow-wrap: anywhere; }
+
+/* --- Data Tags responsiveness --------------------------------------------
+   Keyed to the CARD's own rendered width (via container-type:inline-size
+   on .card, see above), not the viewport -- a card can end up this narrow
+   either because the window itself is narrow or because "Cards per row"
+   is set high on a wide window, and either way the tags should behave
+   the same. Hidden entirely below 320px, so the space goes to Cab/Model/
+   Splay/CKT (the numbers actually needed at the rig) instead of squeezed
+   tags -- recovered via the Info toggle (.meta-expanded), which just
+   un-hides this same column in place (an accordion, not a separate
+   popup) rather than duplicating the data elsewhere. */
+@container pin-card (max-width: 320px) {
+  .card:not(.meta-expanded) .meta-col { display: none; }
+  .meta-toggle-btn { display: inline-flex; }
+}
+
+/* --- Data Bar mode (manual override) -------------------------------------
+   Everything above this point is the AUTOMATIC behavior -- Side (meta-col
+   beside the cabinet list, on the right) above ~480px of card width,
+   Bottom (stacked) below that, Hidden below ~320px. An SE can instead
+   force one of those three modes explicitly (see resolveDataBarMode in
+   app.js, cascading Date override -> Show default), which renders here as
+   a "databar-*" class on #grid -- these rules just need to outrank the
+   automatic ones above on specificity (three/four classes vs. one or two),
+   not use !important, since "no override set" still needs the automatic,
+   width-driven rules to apply untouched. Hidden only touches visibility,
+   not layout -- the box-list/meta-col arrangement underneath keeps
+   following whatever the automatic rules (or a separately forced Side/
+   Bottom) already say, so revealing it via the Info toggle shows it in
+   that same "side or bottom" shape rather than some fourth position of
+   its own. */
+@media (min-width: 700px) {
+  .grid.databar-side-left .card-body,
+  .grid.databar-side-right .card-body { flex-direction: row; }
+  /* Box-list is always first in the DOM (the cabinet list matters more
+     than the tags), so Side-right -- the default side -- needs no reorder
+     at all; Side-left just pulls meta-col in front of it visually. */
+  .grid.databar-side-left .card .meta-col { order: -1; }
+  .grid.databar-bottom .card-body { flex-direction: column; }
+  .grid.databar-bottom .card .box-list { border-right: none; border-bottom: 1px solid var(--border); }
+  .grid.databar-bottom .card .meta-col { flex-basis: auto; }
+}
+.grid.databar-side-left .card .meta-col,
+.grid.databar-side-right .card .meta-col,
+.grid.databar-bottom .card .meta-col {
+  display: grid !important; /* overrides the max-width:320px auto-hide -- an explicitly forced mode should never silently collapse */
+}
+.grid.databar-hidden .card:not(.meta-expanded) .meta-col { display: none; }
+.grid.databar-hidden .meta-toggle-btn { display: inline-flex; }
 /* Hang identity stripe: a real proportioned band (not just a thin
    border line) along the card's left edge, sized as a percentage of the
    card's own width so it stays prominent whether the card is one of
@@ -445,13 +623,43 @@ input[type=text], input[type=number] {
   .app-shell { display: flex; align-items: flex-start; }
   .mobile-topbar { display: none; }
   .sidebar-backdrop { display: none !important; }
+  /* Anchored just right of the always-visible 260px side rail instead of
+     the mobile left:12px/right:12px spread, which would otherwise sit
+     on top of the sidebar itself at this width. */
+  #dataTagsPanel { top: 20px; left: 272px; right: auto; width: 320px; }
   .sidebar {
     position: sticky; top: 0; left: auto; transform: none !important;
     width: 260px; flex: 0 0 260px; height: 100vh; box-shadow: none;
     border-right: 1px solid var(--border); padding: 20px;
+    transition: flex-basis 0.2s ease, width 0.2s ease, padding 0.2s ease, opacity 0.15s ease;
   }
   .menu-close { display: none; }
   .main-content { flex: 1; }
+  /* Collapsed to zero width rather than unmounted -- keeps its scroll
+     position/panel-open state intact for whenever it's reopened, same
+     reasoning as the mobile sidebar staying in the DOM behind its
+     backdrop. overflow:hidden clips its 260px-wide content instead of
+     letting it reflow/wrap during the collapse transition. */
+  body.sidebar-collapsed .sidebar {
+    width: 0; flex: 0 0 0; padding: 0; border-right: none; overflow: hidden; opacity: 0;
+  }
+  /* One grip, not two separate buttons -- vertically centered on the
+     screen (not tucked in the sidebar's header corner) and docked right
+     at the sidebar/content boundary, so it reads as part of the
+     boundary itself. Slides to the screen's left edge when collapsed
+     (see body.sidebar-collapsed below) instead of swapping to a
+     different element, so there's one consistent "grab this to toggle"
+     target regardless of state -- setSidebarCollapsed (app.js) swaps its
+     glyph/label to match.  */
+  .sidebar-toggle-tab {
+    display: flex; align-items: center; justify-content: center;
+    position: fixed; left: 260px; top: 50%; transform: translateY(-50%); z-index: 20;
+    width: 18px; height: 56px; background: var(--surface); color: var(--text-muted);
+    border: 1px solid var(--border-strong); border-radius: 6px; box-shadow: var(--shadow);
+    font-size: 13px; cursor: pointer; transition: left 0.2s ease;
+  }
+  .sidebar-toggle-tab:hover { color: var(--accent); border-color: var(--accent); }
+  body.sidebar-collapsed .sidebar-toggle-tab { left: 0; }
   /* Desktop view-only: the side rail comes back (just decluttered by the
      body.view-only rules further up -- upload/cards-per-row/colors/
      numbering/save stay hidden, leaving show info + export buttons), and
@@ -470,8 +678,26 @@ input[type=text], input[type=number] {
   .empty-state { margin: 64px auto; padding: 32px 28px; }
 
   .grid { gap: 18px; padding: 20px; }
-  .card-body { flex-direction: row; }
-  .box-list { flex: 1; border-right: 1px solid var(--border); border-bottom: none; }
+  /* Grid columns are 1fr, which stretches a card to fill its whole
+     column regardless of content -- fine at 2+ columns (each column's
+     already narrow), but a lone 1-column card on a wide screen (Cards
+     per row set to 1, or the window's too narrow for 2 columns per
+     MULTI_CARD_MQL but still wide enough for row layout) would otherwise
+     stretch box-list(max 350px)+meta-col(230px) apart with a large dead
+     gap between them. Capped to roughly what card-body's own min-width
+     (below) needs, plus the hang-stripe-bar/borders around it -- has to
+     stay in sync with that min-width, or card-body overflows .card's own
+     (overflow:hidden) box and gets clipped. */
+  .card { max-width: 695px; }
+  .card-body { flex-direction: row; min-width: 675px; }
+  /* max-width only makes sense here, box-list-beside-meta-col (row)
+     layout -- capping it stopped it stretching to fill the leftover flex
+     space when meta-col doesn't need much room. Reset back to none in
+     the narrow-card @container query below, which switches back to the
+     stacked (column) layout mobile already uses -- there, box-list is
+     alone on its own row with no sibling to share width with, so it
+     should use the full card width like it always did. */
+  .box-list { flex: 1; border-right: 1px solid var(--border); border-bottom: none; max-width: 350px; }
   .box-cell { padding: 0 2px; }
   .box-row { font-size: 12px; }
   .field-label { flex: 0 0 30px; }
@@ -480,14 +706,31 @@ input[type=text], input[type=number] {
   .circuit-set-stripe { width: 12px; }
   .splay-value { width: 34px; height: 20px; font-size: 11px; }
   .value-chip { padding: 2px 6px; }
-  /* Wide enough for two real columns -- at the old 150px, forcing an even
-     2-column grid meant a word as ordinary as "Compression" had nowhere
-     to go but an ugly mid-word break. */
+  /* Row layout (Side) puts the Data Bar in a fixed 230px strip beside a
+     possibly-tall cabinet list -- narrower than Bottom mode gets, but
+     single-column already gives each row the whole strip to itself, and
+     .meta-value's wrap-don't-truncate fallback (see below) covers
+     whatever doesn't fit on one line, so this stays inline like every
+     other mode instead of needing its own stacked treatment. */
   .meta-col { flex: 0 0 230px; font-size: 11px; gap: 5px; padding: 8px; }
   .meta-row { padding: 3px 5px; }
   .meta-label { font-size: 12px; }
   .meta-value { font-size: 13px; }
   .hang-stripe-bar { flex: 0 0 7%; }
+}
+
+/* Placed after the desktop @media block above so it wins the cascade at
+   equal specificity -- once a card is this narrow, sitting box-list and
+   meta-col side by side (the desktop default) leaves neither one enough
+   room, even with Data Tags down to one column. Stacking them (same
+   layout mobile already uses) lets the tags use the card's full width
+   instead of the fixed 230px desktop side-column. Card width, not
+   viewport width, since this is exactly the "high cards-per-row on a
+   wide window" case the viewport-only desktop check can't see. */
+@container pin-card (max-width: 480px) {
+  .card-body { flex-direction: column; }
+  .box-list { border-right: none; border-bottom: 1px solid var(--border); max-width: none; }
+  .meta-col { flex-basis: auto; }
 }
 
 /* --- Print / PDF export --------------------------------------------------
@@ -499,7 +742,13 @@ input[type=text], input[type=number] {
    scoped to a class selector, so that part is injected as its own
    <style> tag by the same JS functions instead of living here. */
 @media print {
-  .mobile-topbar, .sidebar, .sidebar-backdrop, .empty-state, .status-msg, .view-only-topbar { display: none !important; }
+  .mobile-topbar, .sidebar, .sidebar-backdrop, .sidebar-toggle-tab, .empty-state, .status-msg, .view-only-topbar, .hang-tabs, #dataTagsPanel { display: none !important; }
+  .meta-toggle-btn { display: none !important; }
+  /* Editing/local-preference affordances that mean nothing on paper --
+     the lock icon and login popover, and the per-chip "hide this tag"
+     controls (a per-device viewing preference, not shared data). */
+  .auth-lock-btn, .auth-popover, .meta-row-hide-btn, .meta-show-all-btn { display: none !important; }
+  .card:not(.meta-expanded) .meta-col { display: grid !important; }
   .app-shell { display: block; }
   .main-content { width: 100%; }
   body { background: #fff; }

@@ -26,6 +26,16 @@
     <input type="text" name="date" placeholder="New date (e.g. 7/8/2026)" maxlength="40" required>
     <button type="submit" class="btn btn-primary">Add date</button>
   </form>
+  <!-- SE's show-wide Data Tags default -- every Date under this show
+       inherits it unless that Date (or one of its hangs) overrides a
+       given tag; see the Data tags panel on the Date page itself. -->
+  <button id="dataTagsToggleBtn" class="btn btn-ghost show-settings-toggle" type="button">Data tags&hellip;</button>
+  <div id="dataTagsPanel" class="settingsPanel" style="display:none;"></div>
+  <!-- SE's show-wide Data Bar (the Mode/Aim/Trim/etc. panel) placement
+       default -- every Date under this show inherits it unless that Date
+       overrides it; see the Data bar panel on the Date page itself. -->
+  <button id="dataBarToggleBtn" class="btn btn-ghost show-settings-toggle" type="button">Data bar&hellip;</button>
+  <div id="dataBarPanel" class="settingsPanel" style="display:none;"></div>
 </div>
 
 <button id="authLockBtn" class="auth-lock-btn" type="button" aria-label="Locked"></button>
