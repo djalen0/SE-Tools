@@ -409,6 +409,16 @@ function hangStripeColor(header, hangColors) {
 }
 
 function render() {
+  // Belt-and-suspenders alongside PRINT_IN_PROGRESS (see its own comment
+  // for the individual listeners that check it) -- this is the backstop
+  // for any render()-triggering path that flag *hasn't* been threaded
+  // through, known or not yet discovered. A PDF export sets its own
+  // "print-mode-*" class on body for its entire duration (see runPrint),
+  // so as long as that's present, render() has no business touching the
+  // grid at all -- whatever called it, it would be overwriting the
+  // export's own column count/content with the on-screen version,
+  // corrupting the very layout the browser is mid-paginating.
+  if (document.body.classList.contains('print-mode-grid') || document.body.classList.contains('print-mode-mobile')) return;
   const grid = document.getElementById('grid');
   const emptyState = document.getElementById('emptyState');
 
@@ -1350,9 +1360,19 @@ function runPrint(modeClass, pageCss, gridColumns, fitPage) {
 // size reduction for real instead of relying on that). Portrait, not
 // landscape -- taller usable height matters more than extra width for a
 // stack of 2-per-row cards, and needs noticeably less shrinking to fit.
+// Matches cards_per_row up to this many columns -- past it, no amount of
+// print-mode-grid compacting buys back enough width per card to stay
+// legible (portrait's ~740px usable width / 3 is already a tight ~245px
+// per card; a 5-per-row on-screen preference, carried forward from
+// whatever it was last set to, would mean ~125px columns on paper --
+// nowhere near enough room for Cab/Model/Splay/CKT). cards_per_row is
+// tuned for reading comfort on a screen that can be as wide as you like;
+// print has a fixed, much narrower budget.
+const MAX_PRINT_COLUMNS = 3;
+
 function exportPrintGrid() {
   const marginMm = 10;
-  const cols = Math.max(1, (STATE && STATE.cards_per_row) || 2);
+  const cols = Math.min(Math.max(1, (STATE && STATE.cards_per_row) || 2), MAX_PRINT_COLUMNS);
   runPrint(
     'print-mode-grid',
     // Explicit dimensions, not a "portrait" keyword -- that keyword only
