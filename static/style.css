@@ -185,17 +185,24 @@ body.view-only .view-only-topbar {
   box-shadow: var(--shadow); padding: 14px 14px 4px;
 }
 /* Being position:absolute, the topbar doesn't push content down on its
-   own -- without this, the grid's first card (or, in Tabs view, the hang
-   tab buttons -- see .hang-tabs below) sit right underneath it, hidden
-   AND unclickable (the topbar's own box still catches the tap first).
-   112px, not the topbar's exact height (measured ~103px) -- it grew
-   taller when the "Data tags..." button was added to it and this was
-   never updated to match, so a bit of buffer this time rather than
-   another exact fit that silently goes stale again. Reset back to the
-   normal padding at desktop widths, where the topbar itself is hidden
-   again (see the min-width:700px query). */
+   own -- without this, the first thing below it (the grid's first card
+   in Grid view, or the hang tab buttons in Tabs view -- see .hang-tabs
+   below) sits right underneath it, hidden AND unclickable (the topbar's
+   own box still catches the tap first). 112px, not the topbar's exact
+   height (measured ~103px) -- it grew taller when the "Data tags..."
+   button was added to it and this was never updated to match, so a bit
+   of buffer this time rather than another exact fit that silently goes
+   stale again. Reset back to the normal padding at desktop widths, where
+   the topbar itself is hidden again (see the min-width:700px query). */
 body.view-only .grid,
 body.view-only .hang-tabs { padding-top: 112px; }
+/* ...but only whichever of those is actually first needs it -- in Tabs
+   view, .hang-tabs (shown via inline style="display: flex", set in
+   app.js's render()) already clears the topbar itself, so .grid right
+   after it doesn't need its own redundant 112px on top of that, which
+   was leaving a large dead gap between the tab buttons and the first
+   card. */
+body.view-only .hang-tabs[style*="display: flex"] ~ .grid { padding-top: 0; }
 /* dataTagsToggleBtn/dataTagsPanel are intentionally NOT in this list --
    unlike Colors/Circuit numbering/Save, Data Tags now has a real,
    useful view-only mode of its own (a per-device hide list that never
