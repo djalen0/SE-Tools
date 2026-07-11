@@ -202,7 +202,7 @@ body.view-only .hang-tabs { padding-top: 112px; }
    after it doesn't need its own redundant 112px on top of that, which
    was leaving a large dead gap between the tab buttons and the first
    card. */
-body.view-only .hang-tabs[style*="display: flex"] ~ .grid { padding-top: 0; }
+body.view-only .hang-tabs[style*="display: flex"] ~ .grid { padding-top: 12px; }
 /* dataTagsToggleBtn/dataTagsPanel are intentionally NOT in this list --
    unlike Colors/Circuit numbering/Save, Data Tags now has a real,
    useful view-only mode of its own (a per-device hide list that never
@@ -214,10 +214,12 @@ body.view-only .field-checkbox,
 body.view-only #colorToggleBtn,
 body.view-only #numberingToggleBtn,
 body.view-only #dataBarToggleBtn,
+body.view-only #hangsToggleBtn,
 body.view-only #saveBtn,
 body.view-only #colorPanel,
 body.view-only #numberingPanel,
-body.view-only #dataBarPanel {
+body.view-only #dataBarPanel,
+body.view-only #hangsPanel {
   display: none !important;
 }
 .print-actions { margin-top: 2px; padding-top: 10px; border-top: 1px solid var(--border); }
@@ -343,6 +345,13 @@ input[type=text], input[type=number] {
 .tag-override-label { flex: 1 1 auto; min-width: 0; }
 .tag-override-toggle { flex: 0 0 auto; }
 .tag-override-toggle .view-mode-btn { padding: 5px 10px; font-size: 12px; }
+.hangs-row { display: flex; align-items: center; gap: 6px; margin: 8px 0; }
+.hangs-move-btn {
+  flex: 0 0 auto; width: 26px; height: 26px; padding: 0;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 13px; line-height: 1;
+}
+.hangs-name-input { flex: 1 1 auto; min-width: 0; font-size: 13px; padding: 5px 8px; }
 .settingsPanel input[type=color] { width: 36px; height: 32px; padding: 0; border: 1px solid var(--border-strong); border-radius: 4px; }
 .settingsPanel input[type=text] { width: 110px; height: 32px; }
 .settingsPanel input[type=number] { width: 56px; height: 32px; }

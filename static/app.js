@@ -429,6 +429,7 @@ function render() {
     document.getElementById('numberingPanel').innerHTML = '';
     document.getElementById('dataTagsPanel').innerHTML = '';
     document.getElementById('dataBarPanel').innerHTML = '';
+    document.getElementById('hangsPanel').innerHTML = '';
     applyViewOnlyLock();
     return;
   }
@@ -513,6 +514,7 @@ function render() {
   renderNumberingPanel();
   renderDataTagsPanel();
   renderDataBarPanel();
+  renderHangsPanel();
   applyViewOnlyLock();
 }
 
@@ -542,7 +544,9 @@ function renderHangTabs(sections) {
     const tab = document.createElement('button');
     tab.type = 'button';
     tab.className = 'hang-tab' + (i === activeHangIndex ? ' active' : '');
-    tab.textContent = formatHangTitle(section.header) || `Hang ${i + 1}`;
+    const fullTitle = formatHangTitle(section.header) || `Hang ${i + 1}`;
+    tab.textContent = abbreviateHangTitle(section.header) || fullTitle;
+    tab.title = fullTitle;
     tab.addEventListener('click', () => { activeHangIndex = i; render(); });
     hangTabs.appendChild(tab);
   });
@@ -573,6 +577,22 @@ const PAIR_SUFFIX_RE = /\s*\(\s*pair\s*\)\s*$/i;
 function formatHangTitle(header) {
   if (!STATE.strip_pair_labels) return header || '';
   return (header || '').replace(PAIR_SUFFIX_RE, '');
+}
+
+// Tab labels are abbreviated to keep the tab row on one line (see
+// .hang-tabs's no-wrap, no-scroll design -- a hidden second row or a
+// scrollbar is exactly the kind of hidden affordance that layout is
+// meant to avoid). Strips the "- Model(Disp)" suffix most naming
+// conventions add after the hang's own name/number (e.g. "1. MAIN -
+// CO12" -> "1. MAIN"), keeping just enough to tell hangs apart at a
+// glance -- the full name is still what shows on the card itself, and
+// in this tab's own title attribute (a hover tooltip). Falls back to the
+// full (pair-stripped) title if there's no " - " to split on, rather
+// than guessing further at an abbreviation.
+function abbreviateHangTitle(header) {
+  const full = formatHangTitle(header);
+  const dashIndex = full.indexOf(' - ');
+  return dashIndex === -1 ? full : full.slice(0, dashIndex);
 }
 
 function renderCard(section, cfg, activePalette, cycleLen) {
@@ -935,6 +955,74 @@ function renderDataBarPanel() {
     row.appendChild(document.createTextNode(' ' + label));
     panel.appendChild(row);
   });
+}
+
+// Renaming/reordering both act on STATE.sections directly -- header text
+// and array order are the ONE source every other view (card titles, hang
+// tabs, hang-stripe color matching, exports) already reads from, so
+// nothing else needs updating in step with this.
+function renderHangsPanel() {
+  const panel = document.getElementById('hangsPanel');
+  panel.innerHTML = '';
+  if (!STATE || !STATE.sections || !STATE.sections.length) return;
+  const note = document.createElement('p');
+  note.className = 'panel-note';
+  note.textContent = 'Rename or reorder hangs -- applies everywhere (cards, tabs, exports).';
+  panel.appendChild(note);
+
+  STATE.sections.forEach((section, i) => {
+    const row = document.createElement('div');
+    row.className = 'hangs-row';
+
+    const moveUpBtn = document.createElement('button');
+    moveUpBtn.type = 'button';
+    moveUpBtn.className = 'hangs-move-btn';
+    moveUpBtn.textContent = '↑';
+    moveUpBtn.disabled = i === 0;
+    moveUpBtn.setAttribute('aria-label', `Move "${section.header}" earlier`);
+    moveUpBtn.addEventListener('click', () => moveHang(i, -1));
+
+    const moveDownBtn = document.createElement('button');
+    moveDownBtn.type = 'button';
+    moveDownBtn.className = 'hangs-move-btn';
+    moveDownBtn.textContent = '↓';
+    moveDownBtn.disabled = i === STATE.sections.length - 1;
+    moveDownBtn.setAttribute('aria-label', `Move "${section.header}" later`);
+    moveDownBtn.addEventListener('click', () => moveHang(i, 1));
+
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.className = 'hangs-name-input';
+    input.value = section.header;
+    input.setAttribute('aria-label', `Rename hang ${i + 1}`);
+    input.addEventListener('change', e => renameHang(i, e.target.value));
+
+    row.appendChild(moveUpBtn);
+    row.appendChild(moveDownBtn);
+    row.appendChild(input);
+    panel.appendChild(row);
+  });
+}
+
+function moveHang(index, delta) {
+  const target = index + delta;
+  if (target < 0 || target >= STATE.sections.length) return;
+  const [section] = STATE.sections.splice(index, 1);
+  STATE.sections.splice(target, 0, section);
+  // Keep the active Tabs-view hang pointing at the SAME hang, not the
+  // same index, if the SE is looking at one while reordering it.
+  if (activeHangIndex === index) activeHangIndex = target;
+  else if (activeHangIndex === target) activeHangIndex = index;
+  render();
+  saveState(false);
+}
+
+function renameHang(index, newHeader) {
+  const trimmed = newHeader.trim();
+  if (!trimmed) { render(); return; } // blank input: just re-render to restore the real name, don't save an empty one
+  STATE.sections[index].header = trimmed;
+  render();
+  saveState(false);
 }
 
 function renderColorPanel() {
@@ -1575,6 +1663,10 @@ document.getElementById('dataBarToggleBtn').addEventListener('click', () => {
   const p = document.getElementById('dataBarPanel');
   p.style.display = p.style.display === 'none' ? 'block' : 'none';
 });
+document.getElementById('hangsToggleBtn').addEventListener('click', () => {
+  const p = document.getElementById('hangsPanel');
+  p.style.display = p.style.display === 'none' ? 'block' : 'none';
+});
 // Two trigger buttons, one panel -- the sidebar's (editor + desktop
 // view-only) and .view-only-topbar's (mobile view-only, which has no
 // sidebar to put a trigger in -- see the comment on #dataTagsPanel in
@@ -1643,13 +1735,24 @@ document.getElementById('sidebarToggleTab').addEventListener('click', () => {
 
 // Touch swipe between hangs in Tabs view -- lets a phone user page through
 // hangs with a swipe instead of reaching for the (potentially many, small)
-// tab buttons. Only does anything in Tabs view; Grid view already shows
-// every hang at once, so there's no "next card" to swipe to.
+// tab buttons. All sits at the front of the sequence (swipe right/"prev"
+// from hang 1 lands back on All, swipe left/"next" from All lands on
+// hang 1), same order as the tab row itself. Only does anything in Tabs
+// view; Grid view already shows every hang at once, so there's no "next
+// card" to swipe to.
+function nextHangIndex(current) {
+  if (current === 'all') return STATE.sections.length ? 0 : null;
+  return current < STATE.sections.length - 1 ? current + 1 : null;
+}
+function prevHangIndex(current) {
+  if (current === 'all') return null;
+  return current > 0 ? current - 1 : 'all';
+}
 (function setupHangSwipe() {
   const grid = document.getElementById('grid');
   let startX = 0, startY = 0, tracking = false;
   grid.addEventListener('touchstart', e => {
-    tracking = !!STATE && STATE.view_mode === 'tabs' && activeHangIndex !== 'all' && e.touches.length === 1;
+    tracking = !!STATE && STATE.view_mode === 'tabs' && e.touches.length === 1;
     if (!tracking) return;
     startX = e.touches[0].clientX;
     startY = e.touches[0].clientY;
@@ -1662,11 +1765,8 @@ document.getElementById('sidebarToggleTab').addEventListener('click', () => {
     // Mostly-horizontal and far enough to be a deliberate swipe -- not a
     // vertical scroll attempt or a tap that drifted a few pixels.
     if (Math.abs(dx) < 50 || Math.abs(dx) < Math.abs(dy) * 1.5) return;
-    if (dx < 0 && activeHangIndex < STATE.sections.length - 1) {
-      activeHangIndex++; render();
-    } else if (dx > 0 && activeHangIndex > 0) {
-      activeHangIndex--; render();
-    }
+    const target = dx < 0 ? nextHangIndex(activeHangIndex) : prevHangIndex(activeHangIndex);
+    if (target !== null) { activeHangIndex = target; render(); }
   }, {passive: true});
 })();
 
