@@ -1337,7 +1337,10 @@ function runPrint(modeClass, pageCss, gridColumns, fitPage) {
   // "Pinning Sheet Editor" title.
   const prevTitle = document.title;
   document.title = buildExportFilename();
+  let cleanedUp = false;
   const cleanup = () => {
+    if (cleanedUp) return; // afterprint firing AND the fallback timer both landing is expected, not a bug
+    cleanedUp = true;
     document.body.classList.remove(modeClass);
     setPrintPageStyle('');
     resetContentFit();
@@ -1347,6 +1350,16 @@ function runPrint(modeClass, pageCss, gridColumns, fitPage) {
     window.removeEventListener('afterprint', cleanup);
   };
   window.addEventListener('afterprint', cleanup);
+  // Fallback in case 'afterprint' doesn't fire -- not just theoretical,
+  // since the whole reason render() now refuses to touch the grid while
+  // print-mode-* is on body (see render()) is that this class has to be
+  // trustworthy. Without this, a browser/situation where 'afterprint'
+  // is unreliable would leave the page permanently stuck in print mode
+  // (tiny compacted type, unresponsive grid) until a manual reload --
+  // exactly what "prints fine but the site looks broken afterward" would
+  // look like. 20s is generous enough not to fire during a normal print
+  // dialog interaction, short enough to self-heal quickly if it does.
+  setTimeout(cleanup, 20000);
   window.print();
 }
 
