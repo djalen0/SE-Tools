@@ -9,6 +9,19 @@
 const FIELD_LABELS = {label:'Cab', model:'Model', dispersion:'Disp', angle:'Splay', circuit:'CKT', nfc:'NFC'};
 let STATE = null;
 
+// True for the duration of a PDF export (see runPrint) -- guards every
+// render()-triggering listener below (the debounced window resize one,
+// plus DESKTOP_MQL's and MULTI_CARD_MQL's "change" listeners) against
+// firing mid-export, which would silently overwrite the export's own
+// column count and zoom level with the on-screen ones, corrupting the
+// very layout the browser is about to paginate. Opening the print
+// dialog/preview can shrink the effective viewport enough to cross
+// either matchMedia breakpoint, firing its listener immediately (these
+// two aren't debounced like the resize one is), so this isn't just a
+// theoretical race -- it's the actual cause of cards printing at full
+// width instead of the intended column count.
+let PRINT_IN_PROGRESS = false;
+
 // Which hang is showing in Tabs view (see renderHangTabs) -- kept outside
 // STATE since it's just a transient viewing position, not something worth
 // persisting/exporting like the rest of the job. Clamped back into range
@@ -194,7 +207,7 @@ function makeTagHideBtn(section, key, label) {
 // it does that preference actually take effect. Re-renders on cross-over
 // so rotating a phone or resizing a window updates the layout live.
 const DESKTOP_MQL = window.matchMedia('(min-width: 700px)');
-DESKTOP_MQL.addEventListener('change', () => render());
+DESKTOP_MQL.addEventListener('change', () => { if (!PRINT_IN_PROGRESS) render(); });
 
 // Below this width, a card + its meta-col (Aim/Trim/Angle/etc.) can't
 // share a row with a second card without squeezing every field back into
@@ -203,7 +216,7 @@ DESKTOP_MQL.addEventListener('change', () => render());
 // same "collapse to 1 regardless of the user's setting" treatment as the
 // phone-width DESKTOP_MQL check above, just at a wider threshold.
 const MULTI_CARD_MQL = window.matchMedia('(min-width: 1250px)');
-MULTI_CARD_MQL.addEventListener('change', () => render());
+MULTI_CARD_MQL.addEventListener('change', () => { if (!PRINT_IN_PROGRESS) render(); });
 
 // card-body's own min-width (675px, see style.css) needs a bit more than
 // that on the whole CARD once the hang-stripe-bar (7% of the card's width
@@ -229,11 +242,16 @@ function computeGridColumns(desired) {
 // DESKTOP_MQL/MULTI_CARD_MQL snap points above -- e.g. shrinking a window
 // from 1600px to 1300px never crosses either breakpoint, but can still
 // cross the point where 2 columns stop fitting. Debounced since resize
-// fires continuously while dragging.
+// fires continuously while dragging. Skipped entirely while a PDF export
+// is in flight (see PRINT_IN_PROGRESS in runPrint) -- opening the print
+// dialog/preview can itself fire a resize event, and this render() call
+// uses the on-screen column logic (computeGridColumns), which would
+// silently overwrite the export's own column count, corrupting the very
+// layout the browser is about to paginate.
 let resizeRenderTimer = null;
 window.addEventListener('resize', () => {
   clearTimeout(resizeRenderTimer);
-  resizeRenderTimer = setTimeout(render, 120);
+  resizeRenderTimer = setTimeout(() => { if (!PRINT_IN_PROGRESS) render(); }, 120);
 });
 
 async function loadState() {
@@ -1183,6 +1201,15 @@ function inToPx(inches) { return inches * 96; }
 // becoming illegibly tiny trying to force everything onto one page.
 const MIN_FIT_SCALE = 0.4;
 
+// A small cushion applied to the usable page size before fitting content
+// to it -- CSS zoom + getBoundingClientRect rounding can leave the
+// measured "fit" a couple pixels over the real usable area, and since
+// .card has break-inside:avoid, even a couple pixels of real overflow is
+// enough to push a whole card onto a second page rather than just get
+// clipped. Better to end up ~1.5% smaller than strictly necessary than
+// to risk that.
+const PRINT_FIT_SAFETY = 0.985;
+
 // Shrinks (never enlarges) the printed content to fit within one page --
 // measuring it laid out at the page's own usable width, which is what the
 // print engine will actually use regardless of the browser window's
@@ -1194,19 +1221,43 @@ function fitContentToPage(pageWidthIn, pageHeightIn, marginMm) {
   const marginPx = mmToPx(marginMm);
   const usableWidth = inToPx(pageWidthIn) - marginPx * 2;
   const usableHeight = inToPx(pageHeightIn) - marginPx * 2;
-  root.style.transform = 'none';
+  root.style.zoom = '';
   root.style.width = usableWidth + 'px';
+  // @media print force-shows every .meta-col regardless of the ~320px
+  // auto-hide threshold, but that only takes effect once the real print
+  // starts, after this measurement already ran. Without matching it
+  // here, a narrow column measures shorter than it will actually print
+  // (its Data Bar "missing" only in this measurement), understating the
+  // scale-down actually needed and risking overflow onto a second page.
+  const metaCols = [...document.querySelectorAll('.meta-col')];
+  metaCols.forEach(m => { m.style.display = 'grid'; });
   const rect = root.getBoundingClientRect();
-  const scale = Math.max(MIN_FIT_SCALE, Math.min(1, usableWidth / rect.width, usableHeight / rect.height));
-  root.style.transformOrigin = 'top left';
-  root.style.transform = scale < 1 ? `scale(${scale})` : 'none';
+  metaCols.forEach(m => { m.style.display = ''; });
+  const scale = Math.max(MIN_FIT_SCALE, Math.min(1, (usableWidth * PRINT_FIT_SAFETY) / rect.width, (usableHeight * PRINT_FIT_SAFETY) / rect.height));
+  // zoom, not transform:scale() -- transform is a paint-time-only visual
+  // effect, it never changes an element's actual layout box, so Chrome's
+  // print pagination engine was calculating page breaks against each
+  // card's ORIGINAL (pre-shrink) size and just painting the visually
+  // scaled-down result over that -- which is exactly why every card
+  // still landed on its own page even at a scale that looked like
+  // everything should fit onto one. zoom actually resizes the layout box
+  // itself, so pagination sees (and paginates against) the real,
+  // shrunk-down content.
+  root.style.zoom = scale < 1 ? scale : '';
+  // Forces the browser to actually commit this zoom change into a real
+  // layout pass right now, synchronously -- window.print() gets called
+  // immediately after this (see runPrint), and without something reading
+  // a layout property here first, Chrome can grab its print snapshot
+  // from a not-yet-reflowed state, i.e. still at the PRE-zoom size, which
+  // reproduces the exact same "every card on its own page" symptom the
+  // switch to zoom (from transform) was meant to fix in the first place.
+  void root.offsetHeight;
 }
 
 function resetContentFit() {
   const root = document.getElementById('root');
-  root.style.transform = '';
+  root.style.zoom = '';
   root.style.width = '';
-  root.style.transformOrigin = '';
 }
 
 // Two-digit-year date, matching the rest of this format ("7/18/26" style)
@@ -1247,13 +1298,9 @@ function buildExportFilename() {
 
 function runPrint(modeClass, pageCss, gridColumns, fitPage) {
   if (!STATE) return;
+  PRINT_IN_PROGRESS = true;
   document.body.classList.add(modeClass);
-  // Bypasses DESKTOP_MQL's usual viewport-driven column count -- printing
-  // the grid layout should show real columns even if the button was
-  // clicked from a phone-width browser window, and printing the mobile
-  // layout should force 1 column even from a wide one.
   const grid = document.getElementById('grid');
-  grid.style.gridTemplateColumns = gridColumns;
   // Tabs view only ever has the one active hang in the DOM -- a PDF
   // export needs every hang regardless of which view mode is on screen,
   // so the grid is fully repopulated here and left for the post-print
@@ -1263,9 +1310,14 @@ function runPrint(modeClass, pageCss, gridColumns, fitPage) {
     grid.innerHTML = '';
     populateGrid(grid, STATE.sections);
   }
-  // pageCss can be a function instead of a plain string -- the mobile
-  // export needs the grid already populated (above) before it can measure
-  // a real page height to use, so it's called here rather than up front.
+  // pageCss can be a function instead of a plain value -- the mobile
+  // export needs the grid already populated (above) to measure a real
+  // page height, so it's resolved here rather than up front. Bypasses
+  // DESKTOP_MQL's usual viewport-driven column count either way --
+  // printing the grid layout should show real columns even if the
+  // button was clicked from a phone-width browser window, and printing
+  // the mobile layout should force 1 column even from a wide one.
+  grid.style.gridTemplateColumns = typeof gridColumns === 'function' ? gridColumns() : gridColumns;
   setPrintPageStyle(typeof pageCss === 'function' ? pageCss() : pageCss);
   if (fitPage) fitContentToPage(fitPage.widthIn, fitPage.heightIn, fitPage.marginMm);
   // Chrome's "Save as PDF" print destination uses document.title as the
@@ -1280,6 +1332,7 @@ function runPrint(modeClass, pageCss, gridColumns, fitPage) {
     setPrintPageStyle('');
     resetContentFit();
     document.title = prevTitle;
+    PRINT_IN_PROGRESS = false;
     render();
     window.removeEventListener('afterprint', cleanup);
   };
@@ -1287,13 +1340,35 @@ function runPrint(modeClass, pageCss, gridColumns, fitPage) {
   window.print();
 }
 
+// Matches what's on screen (cards_per_row) rather than trying to pick a
+// "smarter" column count -- an earlier version of this auto-chose columns
+// to maximize how little the page needed to shrink, but that depended on
+// fitContentToPage's zoom-based shrink actually working for print
+// pagination, which repeated testing showed it doesn't reliably do here
+// (content kept printing at its full, unzoomed size regardless -- see the
+// print-mode-grid compacting rules in style.css, which now do the actual
+// size reduction for real instead of relying on that). Portrait, not
+// landscape -- taller usable height matters more than extra width for a
+// stack of 2-per-row cards, and needs noticeably less shrinking to fit.
 function exportPrintGrid() {
+  const marginMm = 10;
   const cols = Math.max(1, (STATE && STATE.cards_per_row) || 2);
   runPrint(
     'print-mode-grid',
-    '@page { size: landscape; margin: 10mm; }',
+    // Explicit dimensions, not a "portrait" keyword -- that keyword only
+    // sets orientation and leaves the actual page size to whatever the
+    // print destination's default paper is (Letter, A4, whatever the
+    // OS/printer defaults to), which isn't necessarily 8.5x11in. The
+    // fitContentToPage fallback below is computed against exactly
+    // 8.5x11in, so if the real page came out even slightly different,
+    // that math would be fitting content to the wrong page.
+    `@page { size: 8.5in 11in; margin: ${marginMm}mm; }`,
     `repeat(${cols}, 1fr)`,
-    {widthIn: 11, heightIn: 8.5, marginMm: 10}
+    // Still a fallback for whatever doesn't fit at the real, compacted
+    // size (an unusually large hang, say) -- most jobs shouldn't need it
+    // at all now, but if it kicks in, it's shrinking already-compact
+    // content by a little rather than full-size content by a lot.
+    {widthIn: 8.5, heightIn: 11, marginMm}
   );
 }
 
@@ -1326,7 +1401,7 @@ function measureMobilePageContentHeightPx(usableWidthPx) {
   const root = document.getElementById('root');
   const header = document.getElementById('printHeader');
   const prevHeaderDisplay = header.style.display;
-  root.style.transform = 'none';
+  root.style.zoom = '';
   root.style.width = usableWidthPx + 'px';
   header.style.display = 'block';
 

@@ -590,13 +590,39 @@ input[type=text], input[type=number] {
      than the tags), so Side-right -- the default side -- needs no reorder
      at all; Side-left just pulls meta-col in front of it visually. */
   .grid.databar-side-left .card .meta-col { order: -1; }
-  .grid.databar-bottom .card-body { flex-direction: column; }
-  .grid.databar-bottom .card .box-list { border-right: none; border-bottom: 1px solid var(--border); }
+  /* Same two resets the automatic narrow-card @container query below
+     needs and for the same reason -- box-list's max-width and card-body's
+     min-width are both set alongside flex-direction:row in the row-layout
+     block above, and neither is cleared just by this rule overriding
+     flex-direction back to column. Left in place, max-width strands
+     box-list too narrow (dead space beside it, nothing left to share the
+     row with) and min-width forces card-body wider than the card,
+     overflowing it. */
+  .grid.databar-bottom .card-body { flex-direction: column; min-width: 0; }
+  .grid.databar-bottom .card .box-list { border-right: none; border-bottom: 1px solid var(--border); max-width: none; }
   .grid.databar-bottom .card .meta-col { flex-basis: auto; }
+  /* body.print-mode-grid gets the exact same treatment as a forced
+     Bottom Data Bar mode, regardless of whatever mode the SE actually
+     has configured for on-screen viewing -- printed hangs side by side
+     need every card the same predictable shape (cabinet list on top,
+     Data Bar stacked below) to pack a page reliably, not whichever shape
+     a per-card width threshold (or an explicit Side override) happens to
+     land on. !important because .grid.databar-side-left/right (above)
+     is MORE specific (3 classes vs. these 2) and would otherwise still
+     win even though this comes later -- print has to unconditionally
+     beat whatever on-screen mode is set, not just the automatic default.
+     order:0 resets Side-left's meta-col reorder too, or it'd render
+     ABOVE the cabinet list instead of below it once stacked. See the
+     print-mode-grid compacting rules further down for the rest of what
+     makes this actually fit. */
+  body.print-mode-grid .card-body { flex-direction: column !important; min-width: 0 !important; }
+  body.print-mode-grid .card .box-list { border-right: none !important; border-bottom: 1px solid var(--border) !important; max-width: none !important; }
+  body.print-mode-grid .card .meta-col { flex-basis: auto !important; order: 0 !important; }
 }
 .grid.databar-side-left .card .meta-col,
 .grid.databar-side-right .card .meta-col,
-.grid.databar-bottom .card .meta-col {
+.grid.databar-bottom .card .meta-col,
+body.print-mode-grid .card .meta-col {
   display: grid !important; /* overrides the max-width:320px auto-hide -- an explicitly forced mode should never silently collapse */
 }
 .grid.databar-hidden .card:not(.meta-expanded) .meta-col { display: none; }
@@ -726,9 +752,19 @@ input[type=text], input[type=number] {
    layout mobile already uses) lets the tags use the card's full width
    instead of the fixed 230px desktop side-column. Card width, not
    viewport width, since this is exactly the "high cards-per-row on a
-   wide window" case the viewport-only desktop check can't see. */
+   wide window" case the viewport-only desktop check can't see.
+   card-body's own min-width (675px, set alongside flex-direction:row in
+   the desktop block above) has to be reset back to 0 here too -- min-width
+   is a separate property from flex-direction, so switching direction
+   alone doesn't clear it, and left in place it just forces card-body
+   wider than this narrow card, overflowing it (clipped by .card's own
+   overflow:hidden). This is also exactly what was clipping the Data Bar
+   out of the "Export PDF (grid)" output -- fitContentToPage measures the
+   grid at the printed page's own (often narrow, once split into 2+
+   columns) width, which routinely lands a card in this same narrow
+   regime. */
 @container pin-card (max-width: 480px) {
-  .card-body { flex-direction: column; }
+  .card-body { flex-direction: column; min-width: 0; }
   .box-list { border-right: none; border-bottom: 1px solid var(--border); max-width: none; }
   .meta-col { flex-basis: auto; }
 }
@@ -776,3 +812,40 @@ input[type=text], input[type=number] {
     break-after: page; page-break-after: always;
   }
 }
+
+/* print-mode-grid's own Data Bar compacting -- deliberately OUTSIDE
+   @media print (unlike everything above), because it has to be active
+   the moment the print-mode-grid class goes on body, not just once real
+   printing starts. chooseGridPrintColumns/fitContentToPage (app.js)
+   measure the grid in normal on-screen rendering, BEFORE the real print
+   begins -- @media print rules aren't in effect yet at that point, so
+   anything scoped only to @media print would never actually influence
+   which column count or scale those functions land on, just cosmetically
+   apply after the layout is already locked in. Squeezes the Data Bar back
+   to 2 columns with a tighter type scale, purely for this mode -- not
+   mobile (sized to its own content, not fighting a fixed page height).
+   A stacked card's box-list+meta-col height is what's actually limiting
+   how much those functions can avoid shrinking the whole page by, so a
+   meaningfully shorter Data Bar buys back legibility everywhere else more
+   than it costs here. fixupMetaChipLayout (app.js) still measures the
+   real column count itself, so the usual per-row inline/stacked overflow
+   protection keeps working at 2 columns same as it always did. */
+body.print-mode-grid .meta-col { grid-template-columns: repeat(2, minmax(0, 1fr)); font-size: 10px; gap: 3px; padding: 6px; }
+body.print-mode-grid .meta-row { padding: 2px 4px; }
+body.print-mode-grid .meta-label { font-size: 9px; }
+body.print-mode-grid .meta-value { font-size: 11px; }
+/* Real compacting of the cabinet list too -- not a visual scale-down
+   (see fitContentToPage's zoom, which is only a fallback for whatever
+   still doesn't fit after this), an ACTUAL smaller row height/type scale,
+   so the true, unzoomed content is what's small enough to fit the page.
+   zoom's supposed to make print pagination treat shrunk content as
+   shrunk, but that hasn't held up in practice (see chooseGridPrintColumns'
+   history) -- content that's genuinely this size to begin with sidesteps
+   that entirely, rather than depending on it working. */
+body.print-mode-grid { --row-h: 18px; }
+body.print-mode-grid .box-row { font-size: 10px; padding: 0 6px; }
+body.print-mode-grid .box-cell { padding: 0 1px; }
+body.print-mode-grid .card-title { font-size: 12px; padding: 5px 6px; }
+body.print-mode-grid .value-chip,
+body.print-mode-grid .ckt-input { padding: 1px 3px; font-size: 11px; }
+body.print-mode-grid .splay-value { width: 26px; height: 18px; font-size: 9px; }
