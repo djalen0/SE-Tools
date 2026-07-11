@@ -29,7 +29,7 @@ let PRINT_IN_PROGRESS = false;
 // the section count can't leave it pointing past the end. Can also be the
 // string 'all' -- the All tab, which shows every hang at once without
 // leaving Tabs view (see render()).
-let activeHangIndex = 0;
+let activeHangIndex = 'all';
 
 // This Date's identity, from the URL (see date_page() in app.py, which
 // passes both into the template as data-* attributes on <body>) -- every
@@ -1538,6 +1538,11 @@ document.getElementById('stripPairLabelsInput').addEventListener('change', e => 
 document.querySelectorAll('#viewModeToggle .view-mode-btn').forEach(btn => {
   btn.addEventListener('click', () => {
     if (!STATE) return;
+    // All is always where Tabs view starts -- switching to it (from Grid,
+    // or re-clicking Tabs) shouldn't resume whatever single hang was last
+    // viewed, since that's easy to forget you left it on and mistake for
+    // "this is everything."
+    if (btn.dataset.mode === 'tabs') activeHangIndex = 'all';
     STATE.view_mode = btn.dataset.mode;
     render();
     saveState(false);

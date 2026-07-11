@@ -184,11 +184,18 @@ body.view-only .view-only-topbar {
   background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
   box-shadow: var(--shadow); padding: 14px 14px 4px;
 }
-/* Being position:absolute, the topbar doesn't push the grid down on its
-   own -- without this, its first card's own title sits right underneath
-   it, hidden. Reset back to the normal padding at desktop widths, where
-   the topbar itself is hidden again (see the min-width:700px query). */
-body.view-only .grid { padding-top: 76px; }
+/* Being position:absolute, the topbar doesn't push content down on its
+   own -- without this, the grid's first card (or, in Tabs view, the hang
+   tab buttons -- see .hang-tabs below) sit right underneath it, hidden
+   AND unclickable (the topbar's own box still catches the tap first).
+   112px, not the topbar's exact height (measured ~103px) -- it grew
+   taller when the "Data tags..." button was added to it and this was
+   never updated to match, so a bit of buffer this time rather than
+   another exact fit that silently goes stale again. Reset back to the
+   normal padding at desktop widths, where the topbar itself is hidden
+   again (see the min-width:700px query). */
+body.view-only .grid,
+body.view-only .hang-tabs { padding-top: 112px; }
 /* dataTagsToggleBtn/dataTagsPanel are intentionally NOT in this list --
    unlike Colors/Circuit numbering/Save, Data Tags now has a real,
    useful view-only mode of its own (a per-device hide list that never
@@ -692,7 +699,8 @@ body.print-mode-grid .card .meta-col {
      the mobile-only compact header is never needed at this width. */
   body.view-only .sidebar { display: flex; }
   body.view-only .view-only-topbar { display: none; }
-  body.view-only .grid { padding-top: 20px; }
+  body.view-only .grid,
+  body.view-only .hang-tabs { padding-top: 20px; }
   .upload-label input[type=file] { max-width: 100%; }
   .field-inline input[type=number] { width: 60px; height: auto; font-size: 13px; }
   button { padding: 7px 14px; font-size: 13px; }
