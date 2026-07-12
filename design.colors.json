@@ -1,7 +1,7 @@
 {
   "breakout_cable_name": "Hi-D",
   "circuit_colors": [
-    "FF995900",
+    "FF854D00",
     "FFFF0000",
     "FFFF7B00",
     "FFFFD500",
@@ -21,7 +21,7 @@
   ],
   "circuit_set_enabled": true,
   "cycle_length": 4,
-  "enabled": true,
+  "enabled": false,
   "hang_colors": [
     {
       "fill": "FF000000",
@@ -45,6 +45,7 @@
     }
   ],
   "hid_bundle_size": 4,
+  "ink_friendly_patterns": false,
   "numbering_mode": "hid",
   "show_row_fill": false
 }

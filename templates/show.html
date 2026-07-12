@@ -26,16 +26,25 @@
     <input type="text" name="date" placeholder="New date (e.g. 7/8/2026)" maxlength="40" required>
     <button type="submit" class="btn btn-primary">Add date</button>
   </form>
-  <!-- SE's show-wide Data Tags default -- every Date under this show
-       inherits it unless that Date (or one of its hangs) overrides a
-       given tag; see the Data tags panel on the Date page itself. -->
-  <button id="dataTagsToggleBtn" class="btn btn-ghost show-settings-toggle" type="button">Data tags&hellip;</button>
-  <div id="dataTagsPanel" class="settingsPanel" style="display:none;"></div>
-  <!-- SE's show-wide Data Bar (the Mode/Aim/Trim/etc. panel) placement
-       default -- every Date under this show inherits it unless that Date
-       overrides it; see the Data bar panel on the Date page itself. -->
-  <button id="dataBarToggleBtn" class="btn btn-ghost show-settings-toggle" type="button">Data bar&hellip;</button>
-  <div id="dataBarPanel" class="settingsPanel" style="display:none;"></div>
+  <button id="configureShowBtn" class="btn btn-primary show-settings-toggle" type="button">Configure Pinning Sheets</button>
+</div>
+
+<div id="configureShowModal" class="modal-backdrop" hidden>
+  <div class="modal-box config-modal" role="dialog" aria-modal="true" aria-labelledby="configModalTitle">
+    <div class="modal-header">
+      <h2 id="configModalTitle">Configure Pinning Sheets</h2>
+      <button id="configModalCloseBtn" class="modal-close-btn" type="button" aria-label="Close">&times;</button>
+    </div>
+    <div class="modal-body">
+      <div id="configGroupsList" class="config-groups"></div>
+      <div id="configOptionsPane" class="config-options"></div>
+    </div>
+    <div class="modal-footer">
+      <button id="configCancelBtn" class="btn btn-ghost" type="button">Cancel</button>
+      <button id="configApplyBtn" class="btn btn-ghost" type="button">Apply</button>
+      <button id="configApplyExitBtn" class="btn btn-primary" type="button">Apply &amp; Exit</button>
+    </div>
+  </div>
 </div>
 
 <button id="authLockBtn" class="auth-lock-btn" type="button" aria-label="Locked"></button>

@@ -38,6 +38,7 @@ BASE_DIR = Path(__file__).resolve().parent
 DESIGN_PATH = BASE_DIR / 'design.xlsx'
 DATA_DIR = BASE_DIR / 'data'
 PREFS_FILE = DATA_DIR / 'prefs.json'
+PROFILES_FILE = DATA_DIR / 'platform_profiles.json'
 SHOWS_DIR = DATA_DIR / 'shows'
 LEGACY_JOB_FILE = DATA_DIR / 'current_job.json'  # pre-shows/dates single-job file
 
@@ -208,6 +209,15 @@ def load_job(show_slug, date_slug):
 
 def load_prefs():
     return _read_json(PREFS_FILE) or {}
+
+
+def load_profiles():
+    return (_read_json(PROFILES_FILE) or {}).get('profiles', [])
+
+
+def save_profiles(profiles):
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    PROFILES_FILE.write_text(json.dumps({'profiles': profiles}, indent=2), encoding='utf-8')
 
 
 def save_prefs(prefs):
@@ -463,6 +473,26 @@ def api_design_fields():
     return jsonify({'fields_enabled': fields_enabled, 'metadata_fields': metadata_fields})
 
 
+@app.route('/api/circuit-color-config', methods=['GET'])
+def api_get_circuit_color_config():
+    # Circuit/hang colors and breakout numbering aren't per-show -- they're
+    # the same global "next new date" carry-forward settings build_job()
+    # seeds every fresh Date from (see save_global_settings) -- so the Show
+    # page's Configure Pinning Sheets modal edits this directly, same
+    # convention as api_design_fields above, rather than needing any
+    # particular Date's job.json to exist first.
+    return jsonify(load_circuit_color_config(DESIGN_PATH if DESIGN_PATH.exists() else None))
+
+
+@app.route('/api/circuit-color-config', methods=['POST'])
+def api_set_circuit_color_config():
+    data = request.get_json(force=True, silent=True) or {}
+    with STATE_LOCK:
+        colors_path = DESIGN_PATH.with_suffix('.colors.json')
+        colors_path.write_text(json.dumps(data, indent=2), encoding='utf-8')
+    return jsonify(data)
+
+
 @app.route('/api/shows/<show_slug>/dates', methods=['GET'])
 def api_list_dates(show_slug):
     show = get_show(show_slug)
@@ -487,6 +517,89 @@ def api_create_date(show_slug):
         job = build_job([], None, page_header={'title': show['name'], 'venue': '', 'date': date_str})
         save_job(show_slug, slug, job)
     return jsonify({'slug': slug})
+
+
+# --- Platform profile APIs -------------------------------------------------
+# A PA Platform Profile (e.g. "Hi-D") is a named, global (not per-show)
+# snapshot of the settings that are otherwise scattered across the Date
+# page's Colors/Numbering panels plus a Show's own Data Tags/Data Bar
+# defaults -- see CONFIG_GROUPS in show.js for where these get applied from.
+# Applying a profile is a one-time copy, same convention as
+# save_global_settings below: it overwrites the target show's own
+# hidden_tags/data_bar_mode plus the *global* "next new date" carry-forward
+# prefs/colors sidecar, but never touches any date's already-saved job.json.
+
+@app.route('/api/platform-profiles', methods=['GET'])
+def api_list_platform_profiles():
+    return jsonify({'profiles': load_profiles()})
+
+
+@app.route('/api/platform-profiles', methods=['POST'])
+def api_create_platform_profile():
+    data = request.get_json(force=True, silent=True) or {}
+    name = (data.get('name') or '').strip()
+    if not name:
+        return jsonify({'error': 'Profile name is required.'}), 400
+    show_slug = data.get('show_slug') or ''
+    show = get_show(show_slug)
+    if not show:
+        return jsonify({'error': 'Show not found.'}), 404
+    with STATE_LOCK:
+        profiles = load_profiles()
+        existing = {p['id'] for p in profiles}
+        profile_id = unique_slug(slugify(name), existing)
+        prefs = load_prefs()
+        profile = {
+            'id': profile_id,
+            'name': name,
+            'settings': {
+                'circuit_color_config': load_circuit_color_config(DESIGN_PATH if DESIGN_PATH.exists() else None),
+                'hidden_tags': show.get('hidden_tags', []),
+                'data_bar_mode': show.get('data_bar_mode'),
+                'strip_pair_labels': prefs.get('strip_pair_labels', False),
+                'view_mode': prefs.get('view_mode', 'grid'),
+                'cards_per_row': prefs.get('cards_per_row', 2),
+            },
+        }
+        profiles.append(profile)
+        save_profiles(profiles)
+    return jsonify(profile)
+
+
+@app.route('/api/platform-profiles/<profile_id>', methods=['DELETE'])
+def api_delete_platform_profile(profile_id):
+    with STATE_LOCK:
+        profiles = load_profiles()
+        remaining = [p for p in profiles if p['id'] != profile_id]
+        if len(remaining) == len(profiles):
+            return jsonify({'error': 'Profile not found.'}), 404
+        save_profiles(remaining)
+    return jsonify({'ok': True})
+
+
+@app.route('/api/shows/<show_slug>/apply-platform-profile', methods=['POST'])
+def api_apply_platform_profile(show_slug):
+    data = request.get_json(force=True, silent=True) or {}
+    profile_id = data.get('profile_id') or ''
+    with STATE_LOCK:
+        show = get_show(show_slug)
+        if not show:
+            return jsonify({'error': 'Show not found.'}), 404
+        profile = next((p for p in load_profiles() if p['id'] == profile_id), None)
+        if not profile:
+            return jsonify({'error': 'Profile not found.'}), 404
+        settings = profile['settings']
+        show['hidden_tags'] = settings.get('hidden_tags', [])
+        show['data_bar_mode'] = settings.get('data_bar_mode')
+        show_meta_path(show_slug).write_text(json.dumps(show, indent=2), encoding='utf-8')
+        save_prefs({
+            'cards_per_row': settings.get('cards_per_row', 2),
+            'view_mode': settings.get('view_mode', 'grid'),
+            'strip_pair_labels': settings.get('strip_pair_labels', False),
+        })
+        colors_path = DESIGN_PATH.with_suffix('.colors.json')
+        colors_path.write_text(json.dumps(settings.get('circuit_color_config', {}), indent=2), encoding='utf-8')
+    return jsonify(show)
 
 
 # --- Per-date job APIs ----------------------------------------------------

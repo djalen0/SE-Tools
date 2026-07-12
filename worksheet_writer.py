@@ -42,6 +42,7 @@ def load_circuit_color_config(design_path):
         'enabled': False, 'circuit_colors': [], 'cycle_length': 4, 'hang_colors': [],
         'circuit_set_enabled': False, 'circuit_set_colors': [],
         'show_row_fill': True, 'hid_bundle_size': 4, 'breakout_cable_name': 'Trunk Cable',
+        'ink_friendly_patterns': False,
     }
     if not design_path:
         return disabled
@@ -76,6 +77,12 @@ def load_circuit_color_config(design_path):
         'show_row_fill': bool(data.get('show_row_fill', True)),
         'hid_bundle_size': data.get('hid_bundle_size') or 4,
         'breakout_cable_name': data.get('breakout_cable_name') or 'Trunk Cable',
+        # Pattern (stripes/dots/plaid) alongside each color, on top of the
+        # print-color-adjust fix (see style.css) that makes the colors
+        # themselves print reliably -- for when the SE is printing to a
+        # black & white printer (or just wants patterns as a second cue),
+        # where color alone can't tell two circuits/hangs apart.
+        'ink_friendly_patterns': bool(data.get('ink_friendly_patterns', False)),
     }
 
 

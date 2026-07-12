@@ -55,58 +55,55 @@
         </nav>
         <button id="menuCloseBtn" class="menu-close" aria-label="Close menu">&times;</button>
       </div>
-      <!-- The editor types these in directly; view-only mode disables them
-           (see applyViewOnlyLock) and they're styled to read as plain text
-           either way, not a form -- see .show-field in style.css. -->
-      <div class="show-info">
-        <input id="showTitleInput" class="show-field show-title" type="text" placeholder="Show title" maxlength="120">
-        <input id="showVenueInput" class="show-field show-venue" type="text" placeholder="Venue" maxlength="120">
-        <input id="showDateInput" class="show-field show-date" type="text" placeholder="Date" maxlength="40">
-      </div>
     </div>
-    <span id="viewOnlyBanner" class="badge-view-only" style="display:none;">View only</span>
-    <div class="toolbar-fields">
-      <label id="uploadLabel" class="upload-label">Upload sheet<input id="uploadInput" type="file" accept=".pdf,.txt"></label>
-      <label id="cardsPerRowField" class="field-inline">Cards per row<input id="cardsPerRow" type="number" min="1" max="6"></label>
-      <label id="stripPairLabelsField" class="field-checkbox"><input id="stripPairLabelsInput" type="checkbox"> Strip &quot;(Pair)&quot; from hang titles</label>
-      <div class="view-mode-field">
-        View
-        <div class="view-mode-toggle" id="viewModeToggle" role="group" aria-label="View mode">
-          <button type="button" class="view-mode-btn" data-mode="grid">Grid</button>
-          <button type="button" class="view-mode-btn" data-mode="tabs">Tabs</button>
-        </div>
-      </div>
-    </div>
-    <!-- For an editor, sets this Date's Data Tags overrides on top of the
-         Show's own default (see the Show page). For a view-only visitor,
-         renders a different, device-local panel instead (see
-         renderDataTagsPanel/renderLocalDataTagsPanel in app.js) -- so
-         unlike Colors/Circuit numbering/Save below, this button itself
-         is never locked. The panel it opens (#dataTagsPanel) isn't
-         nested in here, though -- see the comment by its real location,
-         just above </aside>, for why. -->
-    <div class="toolbar-actions">
-      <button id="dataTagsToggleBtn" class="btn btn-ghost">Data tags&hellip;</button>
-    </div>
-    <!-- This Date's Data Bar (the Mode/Aim/Trim/etc. panel) placement
-         override, on top of the Show's own default -- see
-         renderDataBarPanel in app.js. A shared-job edit like Colors/
-         Circuit numbering/Save, so it's locked for view-only visitors
-         the same way those are (unlike Data tags above). -->
-    <div class="toolbar-actions">
-      <button id="dataBarToggleBtn" class="btn btn-ghost">Data bar&hellip;</button>
-    </div>
-    <div id="dataBarPanel" class="settingsPanel" style="display:none;"></div>
     <!-- Rename/reorder each hang -- a shared-job edit like Colors/Circuit
          numbering, so it's locked for view-only visitors too. See
-         renderHangsPanel in app.js. -->
+         renderHangsPanel in app.js. Kept first (and open by default,
+         display:block below), and expands right in place here (see
+         #hangsPanel in style.css) rather than flying out like the panels
+         below -- a crew has this open constantly while working through a
+         rig, so it stays anchored to its own button instead of living in
+         a separate dock. -->
     <div class="toolbar-actions">
       <button id="hangsToggleBtn" class="btn btn-ghost">Hangs&hellip;</button>
     </div>
-    <div id="hangsPanel" class="settingsPanel" style="display:none;"></div>
+    <div id="hangsPanel" class="settingsPanel" style="display:block;"></div>
+    <label id="uploadLabel" class="upload-label">Upload sheet<input id="uploadInput" type="file" accept=".pdf,.txt"></label>
+    <!-- Page design is a menu, not just a panel -- Cards per row/Strip
+         labels live here directly, and Data tags/Circuit numbering/
+         Colors/Data bar each get their own button that flies out a
+         second column further right (see the body.view-only rules in
+         style.css: unlike the rest of this panel, Page design's own
+         button+flyout stay reachable for view-only visitors, so Data
+         tags -- never locked, see its own comment below -- is still
+         reachable there; Colors/Circuit numbering/Data bar/Cards per
+         row/Strip labels are individually hidden inside it instead). -->
     <div class="toolbar-actions">
-      <button id="colorToggleBtn" class="btn btn-ghost">Colors&hellip;</button>
-      <button id="numberingToggleBtn" class="btn btn-ghost">Circuit numbering&hellip;</button>
+      <button id="pageDesignToggleBtn" class="btn btn-ghost">Page design&hellip;</button>
+    </div>
+    <div id="pageDesignPanel" class="settingsPanel" style="display:none;">
+      <label id="cardsPerRowField" class="field-inline">Cards per row<input id="cardsPerRow" type="number" min="1" max="6"></label>
+      <label id="stripPairLabelsField" class="field-checkbox"><input id="stripPairLabelsInput" type="checkbox"> Strip &quot;(Pair)&quot; from hang titles</label>
+      <!-- For an editor, sets this Date's Data Tags overrides on top of
+           the Show's own default (see the Show page). For a view-only
+           visitor, renders a different, device-local panel instead (see
+           renderDataTagsPanel/renderLocalDataTagsPanel in app.js) -- so
+           unlike Colors/Circuit numbering/Data bar below, this button
+           itself is never locked (see the body.view-only rules in
+           style.css). -->
+      <div class="toolbar-actions">
+        <button id="dataTagsToggleBtn" class="btn btn-ghost">Data tags&hellip;</button>
+      </div>
+      <div class="toolbar-actions">
+        <button id="numberingToggleBtn" class="btn btn-ghost">Circuit numbering&hellip;</button>
+        <button id="colorToggleBtn" class="btn btn-ghost">Colors&hellip;</button>
+      </div>
+      <div class="toolbar-actions">
+        <button id="dataBarToggleBtn" class="btn btn-ghost">Data bar&hellip;</button>
+      </div>
+      <div id="dataBarPanel" class="settingsPanel" style="display:none;"></div>
+    </div>
+    <div class="toolbar-actions">
       <button id="saveBtn" class="btn">Save</button>
       <button id="exportBtn" class="btn btn-primary">Export to Excel</button>
     </div>
@@ -142,10 +139,53 @@
   <main class="main-content">
     <div id="root">
       <!-- Hidden on screen, shown only in @media print (see style.css) --
-           the show title/venue/date live as sidebar inputs the rest of the
-           time, but the sidebar itself is hidden for print, so this is the
-           one place that information still appears on a printed/PDF page. -->
+           the show title/venue/date live as .content-header below the
+           rest of the time, but that's hidden for print (like everything
+           else outside the grid itself), so this is the one place that
+           information still appears on a printed/PDF page. -->
       <div id="printHeader" class="print-header"></div>
+      <!-- The lock button/popover moved here from their old fixed corner
+           (see .auth-lock-btn in style.css) -- kept as .content-header's
+           own direct children, not nested inside .content-header-fields
+           below, specifically so they stay reachable even when
+           .content-header-fields is hidden for mobile view-only (an
+           anonymous mobile visitor still needs a way to sign in). -->
+      <div class="content-header">
+        <button id="authLockBtn" class="auth-lock-btn" type="button" aria-label="Locked"></button>
+        <div id="authPopover" class="auth-popover" hidden>
+          <form id="authForm">
+            <input type="password" name="password" placeholder="Password" autofocus required>
+            <button type="submit" class="btn btn-primary">Unlock</button>
+          </form>
+          <p id="authError" class="auth-error"></p>
+        </div>
+        <!-- The editor types these in directly; view-only mode disables
+             them (see applyViewOnlyLock) and they're styled to read as
+             plain text either way, not a form -- see .show-field in
+             style.css. Lives at the top of the diagram area itself (not
+             the sidebar) so it's visible without opening the sidebar/
+             menu, paired with the Grid/Tabs toggle in one compact row
+             rather than each stacking as its own full-width block.
+             Hidden for mobile view-only (see body.view-only rules) --
+             .view-only-topbar's voTitle/voMeta already cover that case
+             with a compact read-only display of the same info. -->
+        <div class="content-header-fields">
+          <div class="show-info">
+            <input id="showTitleInput" class="show-field show-title" type="text" placeholder="Show title" maxlength="120">
+            <div class="show-info-line2">
+              <input id="showVenueInput" class="show-field show-venue" type="text" placeholder="Venue" maxlength="120">
+              <input id="showDateInput" class="show-field show-date" type="text" placeholder="Date" maxlength="40">
+            </div>
+          </div>
+          <div class="view-mode-field">
+            View
+            <div class="view-mode-toggle" id="viewModeToggle" role="group" aria-label="View mode">
+              <button type="button" class="view-mode-btn" data-mode="grid">Grid</button>
+              <button type="button" class="view-mode-btn" data-mode="tabs">Tabs</button>
+            </div>
+          </div>
+        </div>
+      </div>
       <div id="emptyState" class="empty-state" style="display:none;">
         <p class="empty-title">No pinning sheet loaded yet</p>
         <p class="empty-sub">Upload a PDF or .txt export using the button above to get started.</p>
@@ -159,14 +199,13 @@
   </main>
 </div>
 
-<button id="authLockBtn" class="auth-lock-btn" type="button" aria-label="Locked"></button>
-<div id="authPopover" class="auth-popover" hidden>
-  <form id="authForm">
-    <input type="password" name="password" placeholder="Password" autofocus required>
-    <button type="submit" class="btn btn-primary">Unlock</button>
-  </form>
-  <p id="authError" class="auth-error"></p>
-</div>
+<!-- Takes over the corner spot the lock icon uses on every other page --
+     on this page specifically, the lock has moved inline into
+     .content-header (before the show title), so this is what occupies
+     the fixed top-right corner instead. Desktop-view-only only (see
+     style.css) -- .view-only-topbar's own compact header already conveys
+     this on mobile. -->
+<span id="viewOnlyBanner" class="badge-view-only">View only</span>
 
 <script src="{{ url_for('static', filename='auth.js') }}"></script>
 <script src="{{ url_for('static', filename='app.js') }}"></script>

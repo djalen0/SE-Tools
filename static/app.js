@@ -290,6 +290,14 @@ function initDateSwitcher() {
   });
 }
 
+// Ink-friendly print patterns (dots/stripes/plaid) cycle independently of
+// the color palette's own length -- a fixed set of INK_PATTERN_COUNT
+// distinct textures (see .ink-pattern-N in style.css), assigned by the
+// same index used to pick each entry's color, so two circuits/hangs that
+// land on the same pattern also very likely differ in cycle position
+// enough to still read as distinct even without any color at all.
+const INK_PATTERN_COUNT = 6;
+
 function assignCircuitColors(cabinets, palette) {
   const map = {};
   if (!palette || !palette.length) return map;
@@ -301,7 +309,10 @@ function assignCircuitColors(cabinets, palette) {
   // indistinguishable row-fill color instead of cycling normally.
   cabinets.forEach(c => {
     const ckt = c._normalCkt !== undefined ? c._normalCkt : c.ckt;
-    if (!(ckt in map)) map[ckt] = palette[Object.keys(map).length % palette.length];
+    if (!(ckt in map)) {
+      const index = Object.keys(map).length;
+      map[ckt] = { fill: palette[index % palette.length], patternIndex: index % INK_PATTERN_COUNT };
+    }
   });
   return map;
 }
@@ -326,7 +337,7 @@ function assignCircuitSetColors(cabinets, palette, cycleLength) {
     if (!(ckt in assignment)) {
       seenOrder.push(ckt);
       const setIndex = Math.floor((seenOrder.length - 1) / cl);
-      assignment[ckt] = palette[setIndex % palette.length];
+      assignment[ckt] = { fill: palette[setIndex % palette.length], patternIndex: setIndex % INK_PATTERN_COUNT };
     }
   });
   return assignment;
@@ -401,9 +412,10 @@ function cssToArgb(css) {
 
 function hangStripeColor(header, hangColors) {
   const lower = (header || '').toLowerCase();
-  for (const entry of (hangColors || [])) {
-    const match = (entry.match || '').toLowerCase();
-    if (match && lower.includes(match)) return entry.fill;
+  const list = hangColors || [];
+  for (let i = 0; i < list.length; i++) {
+    const match = (list[i].match || '').toLowerCase();
+    if (match && lower.includes(match)) return { fill: list[i].fill, patternIndex: i % INK_PATTERN_COUNT };
   }
   return null;
 }
@@ -465,7 +477,9 @@ function render() {
     t.textContent = pageHeader.title;
     printHeader.appendChild(t);
   }
-  const printMetaBits = [pageHeader.venue, pageHeader.date].filter(Boolean).join(' • ');
+  // "Venue - Date" -- a dash, not the bullet voMeta below uses, per the
+  // requested PDF header format.
+  const printMetaBits = [pageHeader.venue, pageHeader.date].filter(Boolean).join(' - ');
   if (printMetaBits) {
     const m = document.createElement('div');
     m.className = 'ph-meta';
@@ -475,9 +489,13 @@ function render() {
 
   // Only ever visible for view-only + mobile (see body.view-only rules in
   // style.css) -- same title/venue/date as printHeader above, just shown
-  // on screen instead of only when printing.
+  // on screen instead of only when printing. Keeps its own bullet
+  // separator (unlike the print header's dash above) -- unrelated to the
+  // PDF format, this is the compact on-screen display for a different
+  // context, and changing its separator wasn't asked for.
+  const voMetaBits = [pageHeader.venue, pageHeader.date].filter(Boolean).join(' • ');
   document.getElementById('voTitle').textContent = pageHeader.title || '';
-  document.getElementById('voMeta').textContent = printMetaBits;
+  document.getElementById('voMeta').textContent = voMetaBits;
 
   // A brand new Date (created but nothing uploaded to it yet) has a job
   // with sections: [] -- same empty-state prompt as no job at all, rather
@@ -603,11 +621,12 @@ function renderCard(section, cfg, activePalette, cycleLen) {
   // header actually matches a hang-color rule -- otherwise a card with no
   // match gets its whole card-content area wider than one that does,
   // throwing off column alignment across the grid.
-  const stripeColor = hangStripeColor(section.header, cfg.hang_colors);
+  const stripe = hangStripeColor(section.header, cfg.hang_colors);
   const bar = document.createElement('div');
   bar.className = 'hang-stripe-bar';
-  if (stripeColor) {
-    bar.style.background = argbToCss(stripeColor);
+  if (stripe) {
+    bar.style.backgroundColor = argbToCss(stripe.fill);
+    if (cfg.ink_friendly_patterns) bar.classList.add('ink-pattern-' + stripe.patternIndex);
   }
   card.appendChild(bar);
 
@@ -670,9 +689,21 @@ function renderCard(section, cfg, activePalette, cycleLen) {
   section.cabinets.forEach((cab, i) => {
     const row = document.createElement('div');
     row.className = 'box-row';
-    const fillHex = circuitFillMap[cab._normalCkt !== undefined ? cab._normalCkt : cab.ckt];
-    if (fillHex && cfg.show_row_fill !== false) {
-      row.style.background = argbToCss(fillHex);
+    const fillEntry = circuitFillMap[cab._normalCkt !== undefined ? cab._normalCkt : cab.ckt];
+    if (fillEntry && cfg.show_row_fill !== false) {
+      if (cfg.ink_friendly_patterns) {
+        // A dedicated swatch instead of painting the whole row -- most of
+        // the row's own background sits behind each cell's own white chip
+        // (see the .box-cell comment further down) anyway, so a pattern
+        // there would mostly be invisible; this puts it somewhere it's
+        // actually going to be seen, whether on screen or on paper.
+        const swatch = document.createElement('div');
+        swatch.className = 'row-color-swatch ink-pattern-' + fillEntry.patternIndex;
+        swatch.style.backgroundColor = argbToCss(fillEntry.fill);
+        row.appendChild(swatch);
+      } else {
+        row.style.backgroundColor = argbToCss(fillEntry.fill);
+      }
     }
     fields.forEach(f => {
       const cell = document.createElement('div');
@@ -695,12 +726,13 @@ function renderCard(section, cfg, activePalette, cycleLen) {
         input.className = 'ckt-input';
         input.addEventListener('change', e => { cab.ckt = e.target.value; render(); });
         wrap.appendChild(input);
-        const setColor = circuitSetFillMap[cab._normalCkt !== undefined ? cab._normalCkt : cab.ckt];
-        if (setColor) {
-          const stripe = document.createElement('div');
-          stripe.className = 'circuit-set-stripe';
-          stripe.style.background = argbToCss(setColor);
-          wrap.appendChild(stripe);
+        const setEntry = circuitSetFillMap[cab._normalCkt !== undefined ? cab._normalCkt : cab.ckt];
+        if (setEntry) {
+          const setStripe = document.createElement('div');
+          setStripe.className = 'circuit-set-stripe';
+          if (cfg.ink_friendly_patterns) setStripe.classList.add('ink-pattern-' + setEntry.patternIndex);
+          setStripe.style.backgroundColor = argbToCss(setEntry.fill);
+          wrap.appendChild(setStripe);
         }
         // A link icon on the border shared with the box above, when the
         // two boxes carry the same circuit (multiple boxes wired to one
@@ -1027,7 +1059,7 @@ function renameHang(index, newHeader) {
 
 function renderColorPanel() {
   const panel = document.getElementById('colorPanel');
-  const cfg = STATE.circuit_color_config || (STATE.circuit_color_config = {enabled:false, show_row_fill:true, circuit_colors:[], cycle_length:4, hang_colors:[], circuit_set_enabled:false, circuit_set_colors:[], numbering_mode:'normal', hid_bundle_size:4, breakout_cable_name:'Trunk Cable'});
+  const cfg = STATE.circuit_color_config || (STATE.circuit_color_config = {enabled:false, show_row_fill:true, circuit_colors:[], cycle_length:4, hang_colors:[], circuit_set_enabled:false, circuit_set_colors:[], numbering_mode:'normal', hid_bundle_size:4, breakout_cable_name:'Trunk Cable', ink_friendly_patterns:false});
   panel.innerHTML = '';
 
   const enabledRow = document.createElement('div');
@@ -1054,6 +1086,20 @@ function renderColorPanel() {
   rowFillRow.appendChild(rowFillCb);
   rowFillRow.appendChild(document.createTextNode(' Show color across whole row'));
   panel.appendChild(rowFillRow);
+
+  // Adds a pattern (stripes/dots/plaid) alongside every color below --
+  // color alone doesn't survive a black & white print/PDF, so this gives
+  // circuits/hangs/circuit-sets a second way to tell apart that still
+  // works with no color at all. See INK_PATTERN_COUNT/.ink-pattern-N.
+  const inkRow = document.createElement('div');
+  inkRow.className = 'swatchRow';
+  const inkCb = document.createElement('input');
+  inkCb.type = 'checkbox';
+  inkCb.checked = !!cfg.ink_friendly_patterns;
+  inkCb.addEventListener('change', e => { cfg.ink_friendly_patterns = e.target.checked; render(); saveState(false); });
+  inkRow.appendChild(inkCb);
+  inkRow.appendChild(document.createTextNode(' Use ink-friendly patterns (for black & white printing)'));
+  panel.appendChild(inkRow);
 
   const paletteLabel = document.createElement('div');
   paletteLabel.className = 'panel-label';
@@ -1126,7 +1172,7 @@ function renderColorPanel() {
 // (which brand's breakout cable you're plugging into), not a visual one.
 function renderNumberingPanel() {
   const panel = document.getElementById('numberingPanel');
-  const cfg = STATE.circuit_color_config || (STATE.circuit_color_config = {enabled:false, show_row_fill:true, circuit_colors:[], cycle_length:4, hang_colors:[], circuit_set_enabled:false, circuit_set_colors:[], numbering_mode:'normal', hid_bundle_size:4, breakout_cable_name:'Trunk Cable'});
+  const cfg = STATE.circuit_color_config || (STATE.circuit_color_config = {enabled:false, show_row_fill:true, circuit_colors:[], cycle_length:4, hang_colors:[], circuit_set_enabled:false, circuit_set_colors:[], numbering_mode:'normal', hid_bundle_size:4, breakout_cable_name:'Trunk Cable', ink_friendly_patterns:false});
   const cableName = cfg.breakout_cable_name || 'Trunk Cable';
   panel.innerHTML = '';
 
@@ -1590,8 +1636,11 @@ function applyViewOnlyLock() {
   // change live without a reload, so this has to be able to unlock
   // controls again, not just lock them down.
   const readOnly = isReadOnly();
+  // #viewOnlyBanner's visibility is handled entirely by the body.view-only
+  // rules in style.css (hidden on mobile -- .view-only-topbar covers that
+  // case -- shown at desktop) rather than set here, so its own "display:
+  // inline" doesn't get clobbered by that CSS.
   document.body.classList.toggle('view-only', readOnly);
-  document.getElementById('viewOnlyBanner').style.display = readOnly ? 'inline' : 'none';
   document.getElementById('uploadLabel').style.display = readOnly ? 'none' : '';
   document.getElementById('saveBtn').style.display = readOnly ? 'none' : '';
   // Excludes the login popover's own password field (lives outside the
@@ -1604,7 +1653,7 @@ function applyViewOnlyLock() {
     if (el.closest('#authPopover') || el.closest('#dataTagsPanel')) return;
     el.disabled = readOnly;
   });
-  const alwaysEnabled = ['exportBtn', 'printGridBtn', 'printMobileBtn', 'colorToggleBtn', 'numberingToggleBtn', 'dataTagsToggleBtn', 'dataTagsToggleBtnVO', 'menuToggleBtn', 'menuCloseBtn', 'authLockBtn', 'sidebarToggleTab'];
+  const alwaysEnabled = ['exportBtn', 'printGridBtn', 'printMobileBtn', 'colorToggleBtn', 'numberingToggleBtn', 'dataTagsToggleBtn', 'dataTagsToggleBtnVO', 'pageDesignToggleBtn', 'menuToggleBtn', 'menuCloseBtn', 'authLockBtn', 'sidebarToggleTab'];
   document.querySelectorAll('button').forEach(btn => {
     if (alwaysEnabled.includes(btn.id) || btn.closest('#authPopover') || btn.closest('#dataTagsPanel') || btn.classList.contains('meta-row-hide-btn') || btn.classList.contains('meta-show-all-btn') || btn.classList.contains('hang-tab')) return;
     btn.disabled = readOnly;
@@ -1651,30 +1700,49 @@ document.getElementById('saveBtn').addEventListener('click', () => saveState(tru
 document.getElementById('exportBtn').addEventListener('click', exportXlsx);
 document.getElementById('printGridBtn').addEventListener('click', exportPrintGrid);
 document.getElementById('printMobileBtn').addEventListener('click', exportPrintMobile);
-document.getElementById('colorToggleBtn').addEventListener('click', () => {
-  const p = document.getElementById('colorPanel');
-  p.style.display = p.style.display === 'none' ? 'block' : 'none';
-});
-document.getElementById('numberingToggleBtn').addEventListener('click', () => {
-  const p = document.getElementById('numberingPanel');
-  p.style.display = p.style.display === 'none' ? 'block' : 'none';
-});
-document.getElementById('dataBarToggleBtn').addEventListener('click', () => {
-  const p = document.getElementById('dataBarPanel');
-  p.style.display = p.style.display === 'none' ? 'block' : 'none';
-});
+// Desktop only (see DESKTOP_MQL): Data tags/Circuit numbering/Colors/Data
+// bar all nest inside Page design (see index.html) and share one fixed
+// flyout dock of their own, one column further right than Page design's
+// own flyout (see style.css) -- so at most one of these four can be open
+// at once there, or they'd stack exactly on top of each other. Opening
+// Page design itself resets all four back closed, for a predictable
+// fresh state each time it's reopened. Hangs is independent of all of
+// this -- it expands in place within the sidebar (see #hangsPanel in
+// style.css) rather than flying out, so it's untouched by any of this.
+// Mobile keeps the old expand-in-place behavior for every panel, where
+// several open at once is harmless, so all of this is a no-op there.
+const PAGE_DESIGN_SUBPANEL_IDS = ['dataTagsPanel', 'numberingPanel', 'colorPanel', 'dataBarPanel'];
+function toggleSubpanel(panelId) {
+  const p = document.getElementById(panelId);
+  const opening = p.style.display === 'none';
+  if (opening && DESKTOP_MQL.matches) {
+    PAGE_DESIGN_SUBPANEL_IDS.forEach(id => { if (id !== panelId) document.getElementById(id).style.display = 'none'; });
+  }
+  p.style.display = opening ? 'block' : 'none';
+}
+document.getElementById('colorToggleBtn').addEventListener('click', () => toggleSubpanel('colorPanel'));
+document.getElementById('numberingToggleBtn').addEventListener('click', () => toggleSubpanel('numberingPanel'));
+document.getElementById('dataBarToggleBtn').addEventListener('click', () => toggleSubpanel('dataBarPanel'));
 document.getElementById('hangsToggleBtn').addEventListener('click', () => {
   const p = document.getElementById('hangsPanel');
   p.style.display = p.style.display === 'none' ? 'block' : 'none';
+});
+document.getElementById('pageDesignToggleBtn').addEventListener('click', () => {
+  const p = document.getElementById('pageDesignPanel');
+  const opening = p.style.display === 'none';
+  if (opening && DESKTOP_MQL.matches) {
+    PAGE_DESIGN_SUBPANEL_IDS.forEach(id => { document.getElementById(id).style.display = 'none'; });
+  }
+  // '' rather than 'block' when opening -- lets #pageDesignPanel's own
+  // "display: flex" (its child spacing, see style.css) win back over this
+  // inline style instead of being clobbered by it.
+  p.style.display = opening ? '' : 'none';
 });
 // Two trigger buttons, one panel -- the sidebar's (editor + desktop
 // view-only) and .view-only-topbar's (mobile view-only, which has no
 // sidebar to put a trigger in -- see the comment on #dataTagsPanel in
 // index.html).
-function toggleDataTagsPanel() {
-  const p = document.getElementById('dataTagsPanel');
-  p.style.display = p.style.display === 'none' ? 'block' : 'none';
-}
+function toggleDataTagsPanel() { toggleSubpanel('dataTagsPanel'); }
 document.getElementById('dataTagsToggleBtn').addEventListener('click', toggleDataTagsPanel);
 document.getElementById('dataTagsToggleBtnVO').addEventListener('click', toggleDataTagsPanel);
 // Click-outside-to-close -- same pattern as the auth popover (see

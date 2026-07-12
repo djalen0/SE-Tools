@@ -32,11 +32,11 @@ body {
 }
 
 /* --- Lock/unlock (no separate sign-in page) -------------------------------
-   Fixed in a corner on every page (Home/Show/Date), independent of the
-   rest of each page's layout on purpose -- threading it into the Date
-   page's existing responsive topbar/sidebar (which already differs
-   between mobile/desktop/view-only) would mean three different places to
-   keep in sync. A fixed corner icon just floats above all of that. */
+   Fixed in a corner on every page (Home/Show), independent of the rest of
+   each page's layout -- a fixed corner icon just floats above all of
+   that. The Date page is the one exception (see .content-header
+   .auth-lock-btn below): it sits inline before the show title there
+   instead, with .badge-view-only taking over the corner spot it vacates. */
 .auth-lock-btn {
   position: fixed; top: 10px; right: 10px; z-index: 100;
   width: 36px; height: 36px; border: 1px solid var(--border); border-radius: 999px;
@@ -50,6 +50,12 @@ body {
   box-shadow: var(--shadow); padding: 14px;
 }
 .auth-popover[hidden] { display: none; }
+/* Date page override -- the popover anchors to .content-header (its
+   nearest positioned ancestor, see .content-header's own rule) instead of
+   the viewport, so it always opens directly under wherever the lock icon
+   actually sits rather than the corner it no longer occupies here. */
+.content-header .auth-lock-btn { position: static; flex: 0 0 auto; }
+.content-header .auth-popover { position: absolute; top: 100%; left: 0; right: auto; margin-top: 8px; }
 .auth-popover form { display: flex; flex-direction: column; gap: 8px; }
 .auth-popover input[type=password] { width: 100%; padding: 8px 10px; font-size: 14px; }
 .auth-error { font-size: 12px; color: #b42318; margin: 4px 0 0; }
@@ -124,7 +130,23 @@ body.menu-open .auth-popover {
    a form -- the same look an editor sees and a view-only visitor sees,
    the only difference being whether the field actually accepts input
    (applyViewOnlyLock disables them for view-only). */
+/* Title/Venue/Date paired with the Grid/Tabs toggle in one compact header
+   row (see .content-header) instead of each stacking as its own
+   full-width block -- keeps this whole header down to two short lines.
+   Lives at the top of the diagram area (see index.html), not the
+   sidebar -- padding matches .grid/.hang-tabs's own 12px so it lines up
+   with the content below it. */
+.content-header { position: relative; display: flex; align-items: flex-start; gap: 10px; padding: 12px 12px 0; }
+/* The title/venue/date/view-toggle group, as opposed to .content-header
+   itself (which also holds the lock button -- see the comment on it in
+   index.html for why that split matters for mobile view-only). */
+.content-header-fields { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; flex: 1; min-width: 0; }
 .show-info { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0; }
+/* Venue and date share one line instead of each getting its own -- see
+   .content-header above for why this whole block needed to shrink. */
+.show-info-line2 { display: flex; align-items: baseline; gap: 6px; min-width: 0; }
+.show-info-line2 .show-venue { flex: 1 1 auto; min-width: 0; }
+.show-info-line2 .show-date { flex: 0 1 auto; min-width: 0; text-align: right; }
 /* Scoped as ".show-info .show-field" (not just ".show-field") so this
    beats the generic "input[type=text]" rule's border/background/padding
    further down the sheet on specificity, regardless of source order. */
@@ -137,14 +159,19 @@ body.menu-open .auth-popover {
 .show-info .show-title { font-size: 17px; font-weight: 700; letter-spacing: -0.01em; }
 .show-info .show-venue, .show-info .show-date { font-size: 13px; color: var(--text-muted); font-weight: 600; }
 .show-info .show-venue:disabled, .show-info .show-date:disabled { -webkit-text-fill-color: var(--text-muted); }
+/* Takes over the lock icon's usual fixed top-right corner -- the lock
+   itself has moved inline into .content-header on this page (see
+   index.html), freeing that corner up. Hidden by default/on mobile
+   (.view-only-topbar's own header already conveys view-only there) and
+   shown only for desktop view-only (see the body.view-only rules below
+   and in the min-width:700px query further down). */
 .badge-view-only {
-  align-self: flex-start;
+  display: none;
+  position: fixed; top: 10px; right: 10px; z-index: 100;
   font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em;
   color: #b42318; background: #fef1f0; border: 1px solid #fbd5d1;
   padding: 3px 8px; border-radius: 999px;
 }
-.toolbar-fields { display: flex; flex-direction: column; gap: 12px; }
-.toolbar-fields label { font-size: 12px; font-weight: 600; color: var(--text-muted); display: flex; flex-direction: column; align-items: flex-start; gap: 6px; }
 .toolbar-actions { display: flex; flex-direction: column; gap: 8px; }
 .toolbar-actions button { width: 100%; }
 
@@ -161,7 +188,8 @@ body.menu-open .auth-popover {
 .view-only-topbar { display: none; }
 body.view-only .mobile-topbar,
 body.view-only .sidebar,
-body.view-only .sidebar-backdrop {
+body.view-only .sidebar-backdrop,
+body.view-only .content-header-fields {
   display: none;
 }
 body.view-only .view-only-topbar {
@@ -223,6 +251,12 @@ body.view-only #hangsPanel {
   display: none !important;
 }
 .print-actions { margin-top: 2px; padding-top: 10px; border-top: 1px solid var(--border); }
+.upload-label { font-size: 12px; font-weight: 600; color: var(--text-muted); display: flex; flex-direction: column; align-items: flex-start; gap: 6px; }
+.field-inline { font-size: 12px; font-weight: 600; color: var(--text-muted); display: flex; flex-direction: row; align-items: center; gap: 8px; }
+/* Cards per row / Data bar / Strip-pair-labels, grouped together --
+   .settingsPanel itself has no built-in child spacing (its other users
+   build their own rows via .swatchRow), so this needs its own gap. */
+#pageDesignPanel { display: flex; flex-direction: column; gap: 10px; }
 .upload-label input[type=file] { font-size: 12px; max-width: 100%; color: var(--text); }
 .field-inline input[type=number] { width: 70px; height: 32px; font-size: 14px; }
 .field-checkbox {
@@ -312,7 +346,6 @@ input[type=text], input[type=number] {
 }
 .new-entity-form input[type=text] { flex: 1; min-width: 160px; }
 .show-settings-toggle { margin-top: 20px; }
-.show-settings-toggle ~ .show-settings-toggle { margin-top: 8px; }
 
 /* --- Login page ---------------------------------------------------------- */
 .login-shell { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 20px; }
@@ -366,6 +399,57 @@ input[type=text], input[type=number] {
 .swatch-item { display: flex; align-items: center; gap: 4px; }
 .swatch-item input[type=color] { flex: 1; min-width: 0; width: auto; }
 .swatch-item button { padding: 4px 8px; }
+
+/* --- Configure Show modal -------------------------------------------------
+   Generic overlay dialog: backdrop + centered box, two-column body (group
+   list on the left, that group's options on the right) on mobile and
+   desktop both -- only the box's own max-width grows at the desktop
+   breakpoint below. Closing (X, backdrop click, Cancel) always discards
+   any unsaved draft; only Apply/Apply & Exit persist it (see show.js). */
+.modal-backdrop {
+  display: flex; align-items: center; justify-content: center;
+  position: fixed; inset: 0; background: rgba(15, 17, 30, 0.45); z-index: 200;
+  padding: 16px;
+}
+.modal-backdrop[hidden] { display: none; }
+.modal-box {
+  background: var(--surface); border-radius: var(--radius); box-shadow: var(--shadow);
+  width: 100%; max-width: 480px; max-height: 85vh;
+  display: flex; flex-direction: column; overflow: hidden;
+}
+.modal-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 14px 16px; border-bottom: 1px solid var(--border); flex: 0 0 auto;
+}
+.modal-header h2 { font-size: 16px; font-weight: 700; margin: 0; }
+.modal-close-btn {
+  padding: 2px 8px; font-size: 20px; line-height: 1; border: none;
+  background: transparent; color: var(--text-muted);
+}
+.modal-close-btn:hover { background: var(--accent-soft); color: var(--accent); }
+.modal-body { display: flex; flex: 1 1 auto; min-height: 0; }
+.config-groups {
+  flex: 0 0 120px; overflow-y: auto; border-right: 1px solid var(--border);
+  padding: 10px; display: flex; flex-direction: column; gap: 2px;
+}
+.config-group-btn {
+  text-align: left; border: none; background: transparent; color: var(--text-muted);
+  padding: 9px 10px; border-radius: var(--radius-sm); font-size: 13px; font-weight: 600;
+}
+.config-group-btn:hover { background: var(--accent-soft); color: var(--accent); }
+.config-group-btn.active { background: var(--accent-soft); color: var(--accent); }
+.config-options { flex: 1 1 auto; min-width: 0; overflow-y: auto; padding: 14px 16px; font-size: 13px; }
+.config-options .swatchRow { display: flex; align-items: center; gap: 8px; margin: 10px 0; flex-wrap: wrap; }
+.config-options button { padding: 6px 12px; font-size: 13px; }
+.config-options .hangs-name-input { font-size: 13px; }
+.modal-footer {
+  display: flex; justify-content: flex-end; gap: 8px;
+  padding: 12px 16px; border-top: 1px solid var(--border); flex: 0 0 auto;
+}
+@media (min-width: 700px) {
+  .modal-box { max-width: 560px; }
+  .config-groups { flex-basis: 150px; }
+}
 
 /* --- Empty state --------------------------------------------------------*/
 .empty-state {
@@ -466,6 +550,28 @@ input[type=text], input[type=number] {
      (same color) paint as one unbroken column instead of a stack of
      visibly separate segments. */
 }
+/* Ink-friendly mode's stand-in for painting the whole row (see renderCard
+   in app.js) -- a small dedicated chip instead, since most of a painted
+   row's background sits behind each cell's own white chip anyway (see the
+   .box-cell comment below) and would barely show through. */
+.row-color-swatch { flex: 0 0 8px; align-self: stretch; margin-right: 8px; border-radius: 2px; }
+/* Ink-friendly print patterns (see INK_PATTERN_COUNT in app.js) -- a
+   fixed set of textures so hang stripes/circuit-set stripes/row swatches
+   still read as distinct from each other with no color at all, not just
+   with "background graphics" printing disabled (see print-color-adjust
+   in the @media print block further down, which handles that case).
+   Layered as background-image alongside each element's own inline
+   background-color (not the "background" shorthand, which would reset
+   the image back to none). */
+.ink-pattern-1 { background-image: repeating-linear-gradient(45deg, rgba(0, 0, 0, 0.35) 0 2px, transparent 2px 6px); }
+.ink-pattern-2 { background-image: radial-gradient(rgba(0, 0, 0, 0.45) 1px, transparent 1.5px); background-size: 6px 6px; }
+.ink-pattern-3 {
+  background-image:
+    repeating-linear-gradient(45deg, rgba(0, 0, 0, 0.3) 0 2px, transparent 2px 6px),
+    repeating-linear-gradient(-45deg, rgba(0, 0, 0, 0.3) 0 2px, transparent 2px 6px);
+}
+.ink-pattern-4 { background-image: repeating-linear-gradient(90deg, rgba(0, 0, 0, 0.35) 0 2px, transparent 2px 6px); }
+.ink-pattern-5 { background-image: repeating-linear-gradient(0deg, rgba(0, 0, 0, 0.35) 0 2px, transparent 2px 6px); }
 .splay-value {
   position: absolute; top: 0; left: 50%; transform: translate(-50%, -50%);
   width: 42px; height: 26px; box-sizing: border-box;
@@ -672,10 +778,37 @@ body.print-mode-grid .card .meta-col {
   .app-shell { display: flex; align-items: flex-start; }
   .mobile-topbar { display: none; }
   .sidebar-backdrop { display: none !important; }
-  /* Anchored just right of the always-visible 260px side rail instead of
-     the mobile left:12px/right:12px spread, which would otherwise sit
-     on top of the sidebar itself at this width. */
+  /* One flyout column past the always-visible 260px side rail: Data tags/
+     Circuit numbering/Colors/Data bar (all nested inside Page design --
+     see index.html) share it, mutually exclusive among themselves (see
+     PAGE_DESIGN_SUBPANEL_IDS in app.js) since only one of those four is
+     ever meant to be open at once there. */
+  .settingsPanel {
+    position: fixed; top: 20px; left: 272px; width: 320px; max-height: calc(100vh - 40px);
+    margin: 0; padding: 14px; border-top: none; overflow-y: auto;
+    background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+    box-shadow: var(--shadow); z-index: 50;
+  }
+  /* left/top explicitly redeclared here, not just inherited from
+     .settingsPanel above -- #dataTagsPanel's own base (mobile) rule sets
+     left:12px/right:12px as an ID selector, which otherwise wins over
+     .settingsPanel's left:272px (a class selector always loses to an ID
+     selector for the same property, media query or not), leaving it
+     stuck at the mobile popover position instead of this shared column. */
   #dataTagsPanel { top: 20px; left: 272px; right: auto; width: 320px; }
+  /* Hangs and Page design are both independent of the flyout column above
+     -- each expands in place within the sidebar itself (its own button's
+     menu, not a shared settings sub-menu) rather than flying out, so both
+     get the same reset back to the base .settingsPanel look. Page
+     design's own vertical expansion is what reveals the Data tags/Circuit
+     numbering/Colors/Data bar buttons that DO fly out (left:272px above)
+     once clicked. */
+  #hangsPanel, #pageDesignPanel {
+    position: static; width: auto; max-height: none; overflow-y: visible;
+    margin-top: 4px; padding: 12px 0 0; border-top: 1px solid var(--border);
+    background: none; border-left: none; border-right: none; border-bottom: none;
+    box-shadow: none; z-index: auto;
+  }
   .sidebar {
     position: sticky; top: 0; left: auto; transform: none !important;
     width: 260px; flex: 0 0 260px; height: 100vh; box-shadow: none;
@@ -710,10 +843,14 @@ body.print-mode-grid .card .meta-col {
   .sidebar-toggle-tab:hover { color: var(--accent); border-color: var(--accent); }
   body.sidebar-collapsed .sidebar-toggle-tab { left: 0; }
   /* Desktop view-only: the side rail comes back (just decluttered by the
-     body.view-only rules further up -- upload/cards-per-row/colors/
-     numbering/save stay hidden, leaving show info + export buttons), and
-     the mobile-only compact header is never needed at this width. */
+     body.view-only rules further up -- Page design/Hangs/Save stay
+     hidden, leaving export buttons), .content-header-fields comes back
+     too (the mobile-only .view-only-topbar covering the same info is
+     never needed at this width), and the mobile-only compact header is
+     never needed at this width. */
   body.view-only .sidebar { display: flex; }
+  body.view-only .content-header-fields { display: flex; }
+  body.view-only .badge-view-only { display: inline; }
   body.view-only .view-only-topbar { display: none; }
   body.view-only .grid,
   body.view-only .hang-tabs { padding-top: 20px; }
@@ -802,12 +939,23 @@ body.print-mode-grid .card .meta-col {
    scoped to a class selector, so that part is injected as its own
    <style> tag by the same JS functions instead of living here. */
 @media print {
-  .mobile-topbar, .sidebar, .sidebar-backdrop, .sidebar-toggle-tab, .empty-state, .status-msg, .view-only-topbar, .hang-tabs, #dataTagsPanel { display: none !important; }
+  /* Without this, Chrome/Safari/Firefox all silently drop every
+     background-color (hang stripes, circuit-set stripes, row swatches,
+     circuit-set-stripe, row fill) unless the person printing happens to
+     have "Background graphics" checked in their print dialog -- off by
+     default almost everywhere. print-color-adjust:exact (and its -webkit-
+     prefixed predecessor, still needed for older Chromium/Safari) forces
+     them to print regardless of that setting -- this is the actual fix
+     for "make sure the PDF prints in color"; the ink-friendly patterns
+     above are the fallback for when someone deliberately prints in black
+     & white anyway. */
+  * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; color-adjust: exact !important; }
+  .mobile-topbar, .sidebar, .sidebar-backdrop, .sidebar-toggle-tab, .content-header, .empty-state, .status-msg, .view-only-topbar, .hang-tabs, #dataTagsPanel { display: none !important; }
   .meta-toggle-btn { display: none !important; }
   /* Editing/local-preference affordances that mean nothing on paper --
      the lock icon and login popover, and the per-chip "hide this tag"
      controls (a per-device viewing preference, not shared data). */
-  .auth-lock-btn, .auth-popover, .meta-row-hide-btn, .meta-show-all-btn { display: none !important; }
+  .auth-lock-btn, .auth-popover, .badge-view-only, .meta-row-hide-btn, .meta-show-all-btn { display: none !important; }
   .card:not(.meta-expanded) .meta-col { display: grid !important; }
   .app-shell { display: block; }
   .main-content { width: 100%; }
