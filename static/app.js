@@ -447,15 +447,11 @@ function render() {
   }
   document.getElementById('cardsPerRow').value = STATE.cards_per_row;
   document.getElementById('stripPairLabelsInput').checked = !!STATE.strip_pair_labels;
-  const viewMode = STATE.view_mode === 'tabs' ? 'tabs' : 'grid';
-  document.querySelectorAll('#viewModeToggle .view-mode-btn').forEach(btn => {
-    btn.classList.toggle('active', btn.dataset.mode === viewMode);
-  });
   // Cards-per-row only means anything when every hang is laid out at
-  // once -- Tabs view showing a single hang has no use for it, but the
-  // All tab (see renderHangTabs) lays out every hang just like Grid view,
-  // so it needs the field back.
-  document.getElementById('cardsPerRowField').style.display = (viewMode === 'tabs' && activeHangIndex !== 'all') ? 'none' : '';
+  // once -- a single hang tab has no use for it, but the All tab (see
+  // renderHangTabs) lays every hang out together, so it needs the field
+  // back.
+  document.getElementById('cardsPerRowField').style.display = activeHangIndex !== 'all' ? 'none' : '';
   // See the "Data Bar mode" CSS rules -- a "databar-*" class here forces
   // Side/Bottom/Hidden regardless of card width; no class at all leaves
   // the automatic width-driven CSS in charge, same as before this setting
@@ -506,7 +502,7 @@ function render() {
   grid.innerHTML = '';
 
   const hangTabs = document.getElementById('hangTabs');
-  if (hasSections && viewMode === 'tabs') {
+  if (hasSections) {
     if (activeHangIndex !== 'all') {
       if (activeHangIndex >= STATE.sections.length) activeHangIndex = STATE.sections.length - 1;
       if (activeHangIndex < 0) activeHangIndex = 0;
@@ -519,10 +515,10 @@ function render() {
   }
 
   if (hasSections) {
-    const showingOneHang = viewMode === 'tabs' && activeHangIndex !== 'all';
+    const showingOneHang = activeHangIndex !== 'all';
     // A single hang always shows full-width -- the cards-per-row
-    // breakpoints only matter when several hangs share the grid at once
-    // (Grid view, or the All tab within Tabs view).
+    // breakpoints only matter when every hang shares the grid at once
+    // (the All tab).
     const columns = showingOneHang ? 1 : (DESKTOP_MQL.matches && MULTI_CARD_MQL.matches ? computeGridColumns(STATE.cards_per_row) : 1);
     grid.style.gridTemplateColumns = `repeat(${columns}, 1fr)`;
     const sectionsToRender = showingOneHang ? [STATE.sections[activeHangIndex]] : STATE.sections;
@@ -597,20 +593,23 @@ function formatHangTitle(header) {
   return (header || '').replace(PAIR_SUFFIX_RE, '');
 }
 
-// Tab labels are abbreviated to keep the tab row on one line (see
-// .hang-tabs's no-wrap, no-scroll design -- a hidden second row or a
-// scrollbar is exactly the kind of hidden affordance that layout is
-// meant to avoid). Strips the "- Model(Disp)" suffix most naming
-// conventions add after the hang's own name/number (e.g. "1. MAIN -
-// CO12" -> "1. MAIN"), keeping just enough to tell hangs apart at a
-// glance -- the full name is still what shows on the card itself, and
-// in this tab's own title attribute (a hover tooltip). Falls back to the
-// full (pair-stripped) title if there's no " - " to split on, rather
-// than guessing further at an abbreviation.
+// Tab labels are abbreviated so each tab stays as wide as possible before
+// CSS has to shrink/truncate it to keep the whole row on one line (see
+// .hang-tabs/.hang-tab in style.css). Strips the "- Model(Disp)" suffix
+// most naming conventions add after the hang's own name/number (e.g.
+// "1. MAIN - CO12" -> "1. MAIN"), then drops a leading "N. " ordinal too
+// (-> "MAIN") -- the name is what actually tells two hangs apart at a
+// glance, so it's the number that should give up space first once a tab
+// gets squeezed, not the other way around. The full (numbered) name is
+// still what shows on the card itself, and in this tab's own title
+// attribute (a hover tooltip). Falls back to the full (pair-stripped)
+// title if there's no " - " to split on, rather than guessing further at
+// an abbreviation.
 function abbreviateHangTitle(header) {
   const full = formatHangTitle(header);
   const dashIndex = full.indexOf(' - ');
-  return dashIndex === -1 ? full : full.slice(0, dashIndex);
+  const withoutSuffix = dashIndex === -1 ? full : full.slice(0, dashIndex);
+  return withoutSuffix.replace(/^\d+\.\s*/, '');
 }
 
 function renderCard(section, cfg, activePalette, cycleLen) {
@@ -1653,7 +1652,7 @@ function applyViewOnlyLock() {
     if (el.closest('#authPopover') || el.closest('#dataTagsPanel')) return;
     el.disabled = readOnly;
   });
-  const alwaysEnabled = ['exportBtn', 'printGridBtn', 'printMobileBtn', 'colorToggleBtn', 'numberingToggleBtn', 'dataTagsToggleBtn', 'dataTagsToggleBtnVO', 'pageDesignToggleBtn', 'menuToggleBtn', 'menuCloseBtn', 'authLockBtn', 'sidebarToggleTab'];
+  const alwaysEnabled = ['exportBtn', 'printGridBtn', 'printMobileBtn', 'printMobileBtnVO', 'colorToggleBtn', 'numberingToggleBtn', 'dataTagsToggleBtn', 'dataTagsToggleBtnVO', 'pageDesignToggleBtn', 'menuToggleBtn', 'menuCloseBtn', 'authLockBtn', 'sidebarToggleTab'];
   document.querySelectorAll('button').forEach(btn => {
     if (alwaysEnabled.includes(btn.id) || btn.closest('#authPopover') || btn.closest('#dataTagsPanel') || btn.classList.contains('meta-row-hide-btn') || btn.classList.contains('meta-show-all-btn') || btn.classList.contains('hang-tab')) return;
     btn.disabled = readOnly;
@@ -1672,19 +1671,6 @@ document.getElementById('stripPairLabelsInput').addEventListener('change', e => 
   render();
   saveState(false);
 });
-document.querySelectorAll('#viewModeToggle .view-mode-btn').forEach(btn => {
-  btn.addEventListener('click', () => {
-    if (!STATE) return;
-    // All is always where Tabs view starts -- switching to it (from Grid,
-    // or re-clicking Tabs) shouldn't resume whatever single hang was last
-    // viewed, since that's easy to forget you left it on and mistake for
-    // "this is everything."
-    if (btn.dataset.mode === 'tabs') activeHangIndex = 'all';
-    STATE.view_mode = btn.dataset.mode;
-    render();
-    saveState(false);
-  });
-});
 function bindShowField(inputId, key) {
   document.getElementById(inputId).addEventListener('change', e => {
     if (!STATE) return;
@@ -1700,6 +1686,11 @@ document.getElementById('saveBtn').addEventListener('click', () => saveState(tru
 document.getElementById('exportBtn').addEventListener('click', exportXlsx);
 document.getElementById('printGridBtn').addEventListener('click', exportPrintGrid);
 document.getElementById('printMobileBtn').addEventListener('click', exportPrintMobile);
+// .view-only-topbar's own copy of the mobile PDF export trigger -- see
+// its comment in index.html for why this needs its own button instead of
+// just reusing #printMobileBtn (that one lives in the sidebar, which is
+// entirely hidden in this mode).
+document.getElementById('printMobileBtnVO').addEventListener('click', exportPrintMobile);
 // Desktop only (see DESKTOP_MQL): Data tags/Circuit numbering/Colors/Data
 // bar all nest inside Page design (see index.html) and share one fixed
 // flyout dock of their own, one column further right than Page design's
@@ -1801,13 +1792,11 @@ document.getElementById('sidebarToggleTab').addEventListener('click', () => {
   setSidebarCollapsed(!document.body.classList.contains('sidebar-collapsed'));
 });
 
-// Touch swipe between hangs in Tabs view -- lets a phone user page through
-// hangs with a swipe instead of reaching for the (potentially many, small)
-// tab buttons. All sits at the front of the sequence (swipe right/"prev"
-// from hang 1 lands back on All, swipe left/"next" from All lands on
-// hang 1), same order as the tab row itself. Only does anything in Tabs
-// view; Grid view already shows every hang at once, so there's no "next
-// card" to swipe to.
+// Touch swipe between hangs -- lets a phone user page through hangs with
+// a swipe instead of reaching for the (potentially many, small) tab
+// buttons. All sits at the front of the sequence (swipe right/"prev" from
+// hang 1 lands back on All, swipe left/"next" from All lands on hang 1),
+// same order as the tab row itself.
 function nextHangIndex(current) {
   if (current === 'all') return STATE.sections.length ? 0 : null;
   return current < STATE.sections.length - 1 ? current + 1 : null;
@@ -1820,7 +1809,7 @@ function prevHangIndex(current) {
   const grid = document.getElementById('grid');
   let startX = 0, startY = 0, tracking = false;
   grid.addEventListener('touchstart', e => {
-    tracking = !!STATE && STATE.view_mode === 'tabs' && e.touches.length === 1;
+    tracking = !!STATE && e.touches.length === 1;
     if (!tracking) return;
     startX = e.touches[0].clientX;
     startY = e.touches[0].clientY;

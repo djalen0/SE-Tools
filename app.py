@@ -246,7 +246,7 @@ def save_global_settings(job):
         colors_path.write_text(json.dumps(cfg, indent=2), encoding='utf-8')
     save_prefs({
         'cards_per_row': job.get('cards_per_row', 2) if job else 2,
-        'view_mode': job.get('view_mode', 'grid') if job else 'grid',
+        'view_mode': job.get('view_mode', 'tabs') if job else 'tabs',
         'strip_pair_labels': job.get('strip_pair_labels', False) if job else False,
     })
 
@@ -286,7 +286,7 @@ def build_job(sections, source_name, page_header=None):
         'source_file': source_name,
         'sections': sections,
         'cards_per_row': prefs.get('cards_per_row', 2),
-        'view_mode': prefs.get('view_mode', 'grid'),
+        'view_mode': prefs.get('view_mode', 'tabs'),
         'circuit_color_config': load_circuit_color_config(DESIGN_PATH if DESIGN_PATH.exists() else None),
         'fields_enabled': fields_enabled,
         'metadata_fields': metadata_fields,
@@ -557,7 +557,7 @@ def api_create_platform_profile():
                 'hidden_tags': show.get('hidden_tags', []),
                 'data_bar_mode': show.get('data_bar_mode'),
                 'strip_pair_labels': prefs.get('strip_pair_labels', False),
-                'view_mode': prefs.get('view_mode', 'grid'),
+                'view_mode': prefs.get('view_mode', 'tabs'),
                 'cards_per_row': prefs.get('cards_per_row', 2),
             },
         }
@@ -594,7 +594,7 @@ def api_apply_platform_profile(show_slug):
         show_meta_path(show_slug).write_text(json.dumps(show, indent=2), encoding='utf-8')
         save_prefs({
             'cards_per_row': settings.get('cards_per_row', 2),
-            'view_mode': settings.get('view_mode', 'grid'),
+            'view_mode': settings.get('view_mode', 'tabs'),
             'strip_pair_labels': settings.get('strip_pair_labels', False),
         })
         colors_path = DESIGN_PATH.with_suffix('.colors.json')

@@ -37,11 +37,19 @@
     </nav>
     <div class="vo-title" id="voTitle"></div>
     <div class="vo-meta" id="voMeta"></div>
-    <!-- The one interactive thing a view-only visitor needs reachable
+    <!-- The two interactive things a view-only visitor needs reachable
          without a hamburger menu/sidebar (neither exists in this mode,
-         see the comment above) -- toggles the same #dataTagsPanel as the
-         sidebar's own Data tags button (see app.js), just from here. -->
-    <button id="dataTagsToggleBtnVO" class="btn btn-ghost vo-data-tags-btn" type="button">Data tags&hellip;</button>
+         see the comment above). Data tags toggles the same #dataTagsPanel
+         as the sidebar's own Data tags button (see app.js), just from
+         here. Export PDF calls the same exportPrintMobile() the sidebar's
+         own "Export PDF (mobile)…" button does -- without this, a
+         view-only visitor on a phone had no way to export a PDF at all,
+         since the entire sidebar (where every other export button lives)
+         is hidden in this mode. -->
+    <div class="vo-actions">
+      <button id="dataTagsToggleBtnVO" class="btn btn-ghost vo-data-tags-btn" type="button">Data tags&hellip;</button>
+      <button id="printMobileBtnVO" class="btn btn-ghost vo-data-tags-btn" type="button">Export PDF&hellip;</button>
+    </div>
   </div>
   <aside class="sidebar" id="sidebar">
     <div class="sidebar-header">
@@ -98,6 +106,17 @@
         <button id="numberingToggleBtn" class="btn btn-ghost">Circuit numbering&hellip;</button>
         <button id="colorToggleBtn" class="btn btn-ghost">Colors&hellip;</button>
       </div>
+      <!-- Nested right after their own buttons (not left at the bottom of
+           the sidebar) same as #dataBarPanel below -- on mobile these are
+           plain in-flow blocks, not the position:fixed flyouts they
+           become at desktop widths (see .settingsPanel in style.css), so
+           where they actually sit in the DOM is what decides where the
+           revealed content appears on a phone. Leaving them far from
+           their buttons meant opening Circuit numbering/Colors on mobile
+           silently expanded something off-screen at the very bottom of
+           the sidebar instead of right where you were looking. -->
+      <div id="numberingPanel" class="settingsPanel" style="display:none;"></div>
+      <div id="colorPanel" class="settingsPanel" style="display:none;"></div>
       <div class="toolbar-actions">
         <button id="dataBarToggleBtn" class="btn btn-ghost">Data bar&hellip;</button>
       </div>
@@ -119,8 +138,6 @@
       <button id="printMobileBtn" class="btn btn-ghost">Export PDF (mobile)&hellip;</button>
     </div>
     <span id="statusMsg" class="status-msg"></span>
-    <div id="colorPanel" class="settingsPanel" style="display:none;"></div>
-    <div id="numberingPanel" class="settingsPanel" style="display:none;"></div>
   </aside>
   <!-- Deliberately NOT nested inside .sidebar (unlike colorPanel/
        numberingPanel above) -- .sidebar is entirely display:none for a
@@ -164,10 +181,8 @@
              plain text either way, not a form -- see .show-field in
              style.css. Lives at the top of the diagram area itself (not
              the sidebar) so it's visible without opening the sidebar/
-             menu, paired with the Grid/Tabs toggle in one compact row
-             rather than each stacking as its own full-width block.
-             Hidden for mobile view-only (see body.view-only rules) --
-             .view-only-topbar's voTitle/voMeta already cover that case
+             menu. Hidden for mobile view-only (see body.view-only rules)
+             -- .view-only-topbar's voTitle/voMeta already cover that case
              with a compact read-only display of the same info. -->
         <div class="content-header-fields">
           <div class="show-info">
@@ -177,22 +192,14 @@
               <input id="showDateInput" class="show-field show-date" type="text" placeholder="Date" maxlength="40">
             </div>
           </div>
-          <div class="view-mode-field">
-            View
-            <div class="view-mode-toggle" id="viewModeToggle" role="group" aria-label="View mode">
-              <button type="button" class="view-mode-btn" data-mode="grid">Grid</button>
-              <button type="button" class="view-mode-btn" data-mode="tabs">Tabs</button>
-            </div>
-          </div>
         </div>
       </div>
       <div id="emptyState" class="empty-state" style="display:none;">
         <p class="empty-title">No pinning sheet loaded yet</p>
         <p class="empty-sub">Upload a PDF or .txt export using the button above to get started.</p>
       </div>
-      <!-- Only populated/shown in Tabs view mode (see renderHangTabs in
-           app.js) -- one tab per hang, so a long pinning sheet can be
-           flipped through instead of scrolled. -->
+      <!-- One tab per hang plus "All" (see renderHangTabs in app.js), so a
+           long pinning sheet can be flipped through instead of scrolled. -->
       <div class="hang-tabs" id="hangTabs" style="display:none;"></div>
       <div class="grid" id="grid"></div>
     </div>

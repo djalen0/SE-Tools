@@ -53,9 +53,34 @@ body {
 /* Date page override -- the popover anchors to .content-header (its
    nearest positioned ancestor, see .content-header's own rule) instead of
    the viewport, so it always opens directly under wherever the lock icon
-   actually sits rather than the corner it no longer occupies here. */
-.content-header .auth-lock-btn { position: static; flex: 0 0 auto; }
-.content-header .auth-popover { position: absolute; top: 100%; left: 0; right: auto; margin-top: 8px; }
+   actually sits rather than the corner it no longer occupies here.
+   z-index:100 is repeated explicitly on both (not just inherited from the
+   base rule above) -- .content-header is a flex container and this button
+   is one of its items, so the base rule's z-index would still apply even
+   left unstated here (flex items respect z-index even at position:static),
+   but leaving that undeclared meant this button's spot at the top of
+   everything else on the Date page (.settingsPanel flyouts at z-index:50,
+   #dataTagsPanel at z-index:45, the mobile view-only topbar at
+   z-index:25, .sidebar at z-index:40) was an accident of it being a flex
+   item, not a guarantee -- restating it here means it stays correct even
+   if .content-header's layout ever changes away from flex. */
+.content-header .auth-lock-btn { position: static; z-index: 100; flex: 0 0 auto; }
+.content-header .auth-popover { position: absolute; top: 100%; left: 0; right: auto; margin-top: 8px; z-index: 100; }
+/* Mobile view-only is the one state where the static override above
+   backfires: .content-header-fields (the title) is hidden there (see the
+   body.view-only rule below), replaced by .view-only-topbar's own compact
+   header -- but .content-header itself still sits in normal flow at the
+   very top of the page, so this button (kept as .content-header's own
+   direct child specifically so it stays reachable here -- see the
+   comment on it in index.html) was rendering right on top of
+   .view-only-topbar's title underneath it instead of beside it. Reverting
+   to the fixed top-right corner every other page already uses avoids the
+   collision instead of causing it; the min-width:700px query further
+   down switches back to the static/inline version once .content-header-
+   fields (and the room for both) comes back at that width. */
+body.view-only .content-header { padding-bottom: 0; }
+body.view-only .content-header .auth-lock-btn { position: fixed; top: 10px; right: 10px; }
+body.view-only .content-header .auth-popover { position: fixed; top: 52px; right: 10px; left: auto; margin-top: 0; }
 .auth-popover form { display: flex; flex-direction: column; gap: 8px; }
 .auth-popover input[type=password] { width: 100%; padding: 8px 10px; font-size: 14px; }
 .auth-error { font-size: 12px; color: #b42318; margin: 4px 0 0; }
@@ -200,7 +225,8 @@ body.view-only .view-only-topbar {
 .view-only-topbar .breadcrumb { font-size: 11px; margin-bottom: 3px; }
 .vo-title { font-size: 14px; font-weight: 700; color: var(--text); letter-spacing: -0.01em; }
 .vo-meta { font-size: 11px; color: var(--text-muted); font-weight: 600; }
-.vo-data-tags-btn { margin-top: 8px; padding: 5px 10px; font-size: 12px; width: auto; }
+.vo-actions { display: flex; gap: 8px; margin-top: 8px; }
+.vo-data-tags-btn { padding: 5px 10px; font-size: 12px; width: auto; }
 /* #dataTagsPanel lives outside .sidebar (see the comment on it in
    index.html) so it has to be its own floating popover rather than an
    inline block in the sidebar's flow like colorPanel/numberingPanel --
@@ -213,8 +239,8 @@ body.view-only .view-only-topbar {
   box-shadow: var(--shadow); padding: 14px 14px 4px;
 }
 /* Being position:absolute, the topbar doesn't push content down on its
-   own -- without this, the first thing below it (the grid's first card
-   in Grid view, or the hang tab buttons in Tabs view -- see .hang-tabs
+   own -- without this, the first thing below it (the hang tab buttons,
+   or the grid's first card before any sections exist -- see .hang-tabs
    below) sits right underneath it, hidden AND unclickable (the topbar's
    own box still catches the tap first). 112px, not the topbar's exact
    height (measured ~103px) -- it grew taller when the "Data tags..."
@@ -224,12 +250,12 @@ body.view-only .view-only-topbar {
    the topbar itself is hidden again (see the min-width:700px query). */
 body.view-only .grid,
 body.view-only .hang-tabs { padding-top: 112px; }
-/* ...but only whichever of those is actually first needs it -- in Tabs
-   view, .hang-tabs (shown via inline style="display: flex", set in
-   app.js's render()) already clears the topbar itself, so .grid right
-   after it doesn't need its own redundant 112px on top of that, which
-   was leaving a large dead gap between the tab buttons and the first
-   card. */
+/* ...but only whichever of those is actually first needs it -- .hang-tabs
+   (shown via inline style="display: flex", set in app.js's render()
+   whenever there are sections) already clears the topbar itself, so
+   .grid right after it doesn't need its own redundant 112px on top of
+   that, which was leaving a large dead gap between the tab buttons and
+   the first card. */
 body.view-only .hang-tabs[style*="display: flex"] ~ .grid { padding-top: 12px; }
 /* dataTagsToggleBtn/dataTagsPanel are intentionally NOT in this list --
    unlike Colors/Circuit numbering/Save, Data Tags now has a real,
@@ -263,12 +289,10 @@ body.view-only #hangsPanel {
   font-size: 12px; font-weight: 600; color: var(--text-muted);
   display: flex; flex-direction: row; align-items: center; gap: 6px;
 }
-/* Same label-above-control shape as .toolbar-fields label, but its own
-   class rather than .field-inline -- unlike Cards-per-row, this is just a
-   viewing preference, not an editing control, so it should stay visible
-   for view-only visitors too (see the body.view-only selector list a few
-   rules up, which .field-inline is swept into). */
-.view-mode-field { font-size: 12px; font-weight: 600; color: var(--text-muted); display: flex; flex-direction: column; align-items: flex-start; gap: 6px; }
+/* Shared with the per-tag Default/Show/Hide override control in
+   renderDataTagsPanel (app.js) -- the on-screen Grid/Tabs toggle these
+   were originally built for is gone (Tabs' own All tab already covers
+   everything Grid did), but this pair of classes lives on for that. */
 .view-mode-toggle { display: flex; border: 1px solid var(--border-strong); border-radius: var(--radius-sm); overflow: hidden; }
 .view-mode-btn {
   padding: 6px 14px; font-size: 13px; font-weight: 700; color: var(--text-muted);
@@ -276,16 +300,35 @@ body.view-only #hangsPanel {
 }
 .view-mode-btn:last-child { border-right: none; }
 .view-mode-btn.active { background: var(--accent); color: #fff; }
-/* Tabs view: one hang at a time instead of the whole grid -- wraps to a
-   second line rather than a horizontal scrollbar, since a scrollable tab
-   strip is exactly the kind of hidden-affordance UI this feature exists
-   to avoid. */
-.hang-tabs { display: flex; flex-wrap: wrap; gap: 8px; padding: 12px 12px 0; }
+/* Tabs view: one hang at a time instead of the whole grid -- always a
+   single row, never a second line or a horizontal scrollbar (either one
+   is a hidden-affordance UI this feature exists to avoid). Each tab keeps
+   its natural width when there's room; once there isn't (many hangs, or
+   a narrow phone), they shrink together and truncate their own label
+   with an ellipsis rather than wrapping or spilling off-screen -- see
+   min-width:0 (overrides the flex default that would otherwise block
+   shrinking below content size) and text-overflow:ellipsis below.
+   Styled like folder/notebook tabs, not pills -- square-ish with just
+   the top corners rounded, sitting on the shared baseline .hang-tabs
+   draws under them, so the whole row reads as one physical strip rather
+   than a row of separate buttons. */
+.hang-tabs { display: flex; flex-wrap: nowrap; align-items: flex-end; gap: 3px; padding: 12px 12px 0; border-bottom: 1px solid var(--border-strong); }
 .hang-tab {
-  padding: 7px 14px; font-size: 13px; font-weight: 700; color: var(--text-muted);
-  background: var(--surface); border: 1px solid var(--border-strong); border-radius: 999px; cursor: pointer;
+  padding: 8px 12px 7px; font-size: 13px; font-weight: 700; color: var(--text-muted);
+  background: var(--bg); border: 1px solid var(--border-strong); border-bottom: none;
+  border-radius: 8px 8px 0 0; cursor: pointer;
+  flex: 0 1 auto; min-width: 0; max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-.hang-tab.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+/* Surface-white (like a card), not the muted page-gray inactive tabs
+   sit on -- popped forward instead of flat in the bar. Pulled down 1px
+   (past .hang-tabs's own baseline) and re-painted the same white there,
+   cutting a gap in that baseline exactly where this tab sits -- the same
+   "attached to what's below it" illusion a real folder tab or browser
+   tab uses. */
+.hang-tab.active {
+  background: var(--surface); color: var(--accent); border-color: var(--border-strong);
+  margin-bottom: -1px; padding-bottom: 8px;
+}
 .status-msg { font-size: 12px; color: var(--text-muted); font-weight: 600; }
 .main-content { min-width: 0; }
 
@@ -852,6 +895,13 @@ body.print-mode-grid .card .meta-col {
   body.view-only .content-header-fields { display: flex; }
   body.view-only .badge-view-only { display: inline; }
   body.view-only .view-only-topbar { display: none; }
+  /* .view-only-topbar is gone at this width, so the mobile-only fixed-
+     corner override above (needed only to dodge it) isn't needed here --
+     back to sitting inline before the title, same as the editor sees,
+     with .badge-view-only occupying the corner this frees up instead. */
+  body.view-only .content-header { padding-bottom: 0; }
+  body.view-only .content-header .auth-lock-btn { position: static; top: auto; right: auto; }
+  body.view-only .content-header .auth-popover { position: absolute; top: 100%; right: auto; left: 0; margin-top: 8px; }
   body.view-only .grid,
   body.view-only .hang-tabs { padding-top: 20px; }
   .upload-label input[type=file] { max-width: 100%; }
