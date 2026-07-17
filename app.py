@@ -39,6 +39,7 @@ DESIGN_PATH = BASE_DIR / 'design.xlsx'
 DATA_DIR = BASE_DIR / 'data'
 PREFS_FILE = DATA_DIR / 'prefs.json'
 PROFILES_FILE = DATA_DIR / 'platform_profiles.json'
+HANG_PROFILES_FILE = DATA_DIR / 'hang_profiles.json'
 SHOWS_DIR = DATA_DIR / 'shows'
 LEGACY_JOB_FILE = DATA_DIR / 'current_job.json'  # pre-shows/dates single-job file
 
@@ -220,6 +221,15 @@ def save_profiles(profiles):
     PROFILES_FILE.write_text(json.dumps({'profiles': profiles}, indent=2), encoding='utf-8')
 
 
+def load_hang_profiles():
+    return (_read_json(HANG_PROFILES_FILE) or {}).get('profiles', [])
+
+
+def save_hang_profiles(profiles):
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    HANG_PROFILES_FILE.write_text(json.dumps({'profiles': profiles}, indent=2), encoding='utf-8')
+
+
 def save_prefs(prefs):
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     PREFS_FILE.write_text(json.dumps(prefs, indent=2), encoding='utf-8')
@@ -228,22 +238,20 @@ def save_prefs(prefs):
 def save_global_settings(job):
     """
     Persist the settings that should carry over into the NEXT date's job
-    regardless of which show/date it's created under -- circuit/hang
-    colors, the breakout-cable numbering setup, cards-per-row, and the
-    (Pair)-label-stripping preference. Circuit colors live in design.xlsx's
-    own .colors.json sidecar (same convention
-    worksheet_writer.load_circuit_color_config() reads from); the rest
-    live in data/prefs.json. Intentionally global rather than per-show --
-    an SE's color/numbering/naming conventions don't usually change show to
-    show. hidden_tags_overrides is NOT carried forward here -- unlike these,
-    it's specific to one Date's own quirks, not a standing preference (the
+    regardless of which show/date it's created under -- cards-per-row, the
+    default view mode, and the (Pair)-label-stripping preference. Lives in
+    data/prefs.json. Intentionally global rather than per-show -- an SE's
+    card-layout/naming conventions don't usually change show to show.
+    hidden_tags_overrides is NOT carried forward here -- unlike these, it's
+    specific to one Date's own quirks, not a standing preference (the
     show-wide default for that lives on the Show itself, see
     api_set_show_hidden_tags), so a new Date should always start with none.
+    Circuit/hang colors and breakout numbering used to be carried forward
+    globally here too, but that's now a per-Show default (see
+    api_set_show_circuit_color_config) -- writing every Date's own config
+    back into one shared file meant editing colors on any Date, in any
+    Show, silently changed the default for every other Show as well.
     """
-    cfg = job.get('circuit_color_config') if job else None
-    if cfg is not None:
-        colors_path = DESIGN_PATH.with_suffix('.colors.json')
-        colors_path.write_text(json.dumps(cfg, indent=2), encoding='utf-8')
     save_prefs({
         'cards_per_row': job.get('cards_per_row', 2) if job else 2,
         'view_mode': job.get('view_mode', 'tabs') if job else 'tabs',
@@ -271,23 +279,27 @@ def _fields_and_metadata_from_design():
     return fields_enabled, metadata_fields
 
 
-def build_job(sections, source_name, page_header=None):
+def build_job(sections, source_name, page_header=None, show=None):
     """
     Fresh job -- for a brand new Date (sections=[], source_name=None,
     before any file's been uploaded yet) or for a freshly-parsed upload
-    into an existing Date. Circuit/hang colors and cards-per-row are
-    carried forward from whatever was last saved (see save_global_settings
-    above) rather than reset to defaults, so starting a new date or
-    uploading a new file mid-session doesn't lose the crew's color setup.
+    into an existing Date. cards-per-row/view_mode are carried forward from
+    whatever was last saved (see save_global_settings above) rather than
+    reset to defaults. Circuit/hang colors and breakout numbering seed from
+    the owning Show's own standing default (show['circuit_color_config']),
+    falling back to the legacy global design.colors.json sidecar for a Show
+    that hasn't set its own yet -- so starting a new date or uploading a
+    new file mid-session doesn't lose the crew's color setup either way.
     """
     prefs = load_prefs()
     fields_enabled, metadata_fields = _fields_and_metadata_from_design()
+    show_cfg = show.get('circuit_color_config') if show else None
     return {
         'source_file': source_name,
         'sections': sections,
         'cards_per_row': prefs.get('cards_per_row', 2),
         'view_mode': prefs.get('view_mode', 'tabs'),
-        'circuit_color_config': load_circuit_color_config(DESIGN_PATH if DESIGN_PATH.exists() else None),
+        'circuit_color_config': show_cfg if show_cfg else load_circuit_color_config(DESIGN_PATH if DESIGN_PATH.exists() else None),
         'fields_enabled': fields_enabled,
         'metadata_fields': metadata_fields,
         # Show title/venue/date: title+date are set once at creation time
@@ -310,6 +322,13 @@ def build_job(sections, source_name, page_header=None):
         # data_bar_mode on the Show itself (see DATA_BAR_MODES) -- also a
         # Date-specific setting, not carried forward to a new Date.
         'data_bar_mode_override': None,
+        # This Date's own tape-burn-footage override, same null-cascade
+        # convention as data_bar_mode_override -- falls back to the Show's
+        # tape_burn_default_ft when unset. An individual hang can further
+        # override this via its own section['tape_burn_ft'] (set
+        # client-side, passed through verbatim same as
+        # hidden_tags_overrides on a section).
+        'tape_burn_override_ft': None,
         # Whether hang headers/titles get their trailing "(Pair)" marker
         # stripped for display/export -- an SE-wide naming convention, so
         # (unlike hidden_tags_overrides) it IS carried forward, same as
@@ -333,6 +352,9 @@ def _apply_incoming(job, data):
         job['hidden_tags_overrides'] = data['hidden_tags_overrides']
     if 'data_bar_mode_override' in data and data['data_bar_mode_override'] in DATA_BAR_MODES:
         job['data_bar_mode_override'] = data['data_bar_mode_override']
+    if 'tape_burn_override_ft' in data:
+        val = data['tape_burn_override_ft']
+        job['tape_burn_override_ft'] = float(val) if isinstance(val, (int, float)) else None
     if 'strip_pair_labels' in data:
         job['strip_pair_labels'] = data['strip_pair_labels']
 
@@ -420,7 +442,21 @@ def api_create_show():
         # override) falls back to the automatic, card-width-driven
         # placement that's always existed (side on a wide card, bottom on
         # a narrower one, hidden below that), not to some other default.
-        meta = {'name': name, 'slug': slug, 'hidden_tags': [], 'data_bar_mode': None}
+        # circuit_color_config is this Show's own standing default for
+        # circuit/hang colors and Hi-D/breakout numbering -- null means "no
+        # override yet, fall back to the legacy global design.colors.json
+        # sidecar" (see build_job below), same null-cascade convention as
+        # data_bar_mode. Set from the Show page's Configure Pinning Sheets
+        # modal (see api_set_show_circuit_color_config).
+        # tape_burn_default_ft: this Show's standing default for how many
+        # feet a tape measure's "burnt" (missing) first foot(s) throw off a
+        # raw reading -- a Date, then an individual hang, can each override
+        # it (see tape_burn_override_ft on job.json / tape_burn_ft on a
+        # section), falling back down to this when neither is set.
+        meta = {
+            'name': name, 'slug': slug, 'hidden_tags': [], 'data_bar_mode': None,
+            'circuit_color_config': None, 'tape_burn_default_ft': 0,
+        }
         show_meta_path(slug).write_text(json.dumps(meta, indent=2), encoding='utf-8')
     return jsonify(meta)
 
@@ -459,6 +495,37 @@ def api_set_show_data_bar_mode(show_slug):
         if not show:
             return jsonify({'error': 'Show not found.'}), 404
         show['data_bar_mode'] = mode
+        show_meta_path(show_slug).write_text(json.dumps(show, indent=2), encoding='utf-8')
+    return jsonify(show)
+
+
+@app.route('/api/shows/<show_slug>/tape-burn-default', methods=['POST'])
+def api_set_show_tape_burn_default(show_slug):
+    data = request.get_json(force=True, silent=True) or {}
+    try:
+        ft = float(data.get('tape_burn_default_ft'))
+    except (TypeError, ValueError):
+        return jsonify({'error': 'tape_burn_default_ft must be a number.'}), 400
+    with STATE_LOCK:
+        show = get_show(show_slug)
+        if not show:
+            return jsonify({'error': 'Show not found.'}), 404
+        show['tape_burn_default_ft'] = ft
+        show_meta_path(show_slug).write_text(json.dumps(show, indent=2), encoding='utf-8')
+    return jsonify(show)
+
+
+@app.route('/api/shows/<show_slug>/circuit-color-config', methods=['POST'])
+def api_set_show_circuit_color_config(show_slug):
+    data = request.get_json(force=True, silent=True) or {}
+    cfg = data.get('circuit_color_config')
+    if not isinstance(cfg, dict):
+        return jsonify({'error': 'circuit_color_config must be an object.'}), 400
+    with STATE_LOCK:
+        show = get_show(show_slug)
+        if not show:
+            return jsonify({'error': 'Show not found.'}), 404
+        show['circuit_color_config'] = cfg
         show_meta_path(show_slug).write_text(json.dumps(show, indent=2), encoding='utf-8')
     return jsonify(show)
 
@@ -514,7 +581,7 @@ def api_create_date(show_slug):
         root = dates_dir(show_slug)
         existing = {d.name for d in root.iterdir() if d.is_dir()} if root.exists() else set()
         slug = unique_slug(slugify(date_str), existing)
-        job = build_job([], None, page_header={'title': show['name'], 'venue': '', 'date': date_str})
+        job = build_job([], None, page_header={'title': show['name'], 'venue': '', 'date': date_str}, show=show)
         save_job(show_slug, slug, job)
     return jsonify({'slug': slug})
 
@@ -553,7 +620,7 @@ def api_create_platform_profile():
             'id': profile_id,
             'name': name,
             'settings': {
-                'circuit_color_config': load_circuit_color_config(DESIGN_PATH if DESIGN_PATH.exists() else None),
+                'circuit_color_config': show.get('circuit_color_config') or load_circuit_color_config(DESIGN_PATH if DESIGN_PATH.exists() else None),
                 'hidden_tags': show.get('hidden_tags', []),
                 'data_bar_mode': show.get('data_bar_mode'),
                 'strip_pair_labels': prefs.get('strip_pair_labels', False),
@@ -591,15 +658,91 @@ def api_apply_platform_profile(show_slug):
         settings = profile['settings']
         show['hidden_tags'] = settings.get('hidden_tags', [])
         show['data_bar_mode'] = settings.get('data_bar_mode')
+        show['circuit_color_config'] = settings.get('circuit_color_config') or None
         show_meta_path(show_slug).write_text(json.dumps(show, indent=2), encoding='utf-8')
         save_prefs({
             'cards_per_row': settings.get('cards_per_row', 2),
             'view_mode': settings.get('view_mode', 'tabs'),
             'strip_pair_labels': settings.get('strip_pair_labels', False),
         })
-        colors_path = DESIGN_PATH.with_suffix('.colors.json')
-        colors_path.write_text(json.dumps(settings.get('circuit_color_config', {}), indent=2), encoding='utf-8')
     return jsonify(show)
+
+
+# --- Hang Profile APIs ------------------------------------------------
+# A Hang Profile (e.g. "16 Sub - Start Brown") is a named, global (not
+# per-show) snapshot of everything that varies hang-to-hang on tour --
+# which Hi-D cable it starts on, tape-burn footage, an optional manual
+# circuit-numbering pattern (e.g. cardioid subs wired 1,2,1), a direct
+# stripe color, a rename, and its Data Tags. Unlike Platform Profiles
+# (applied once, immediately, to a Show's own defaults), a Hang Profile is
+# *linked* to a specific hang (see hang_profile_id/hang_profile_version on
+# a section, set client-side) -- editing a linked profile here bumps
+# `version`, and it's up to the client (see the Date page's load-time
+# version check) to notice the mismatch and ask the SE whether to update
+# that hang or detach it, rather than silently rewriting every hang that
+# ever used it.
+
+HANG_PROFILE_FIELDS = (
+    'start_breakout', 'hid_reverse_order', 'tape_burn_ft',
+    'apply_manual_circuiting', 'manual_circuit_pattern', 'hang_color',
+    'rename_to', 'hidden_tags',
+)
+HANG_PROFILE_DEFAULTS = {
+    'start_breakout': 1, 'hid_reverse_order': True, 'tape_burn_ft': 0,
+    'apply_manual_circuiting': False, 'manual_circuit_pattern': [], 'hang_color': None,
+    'rename_to': None, 'hidden_tags': [],
+}
+
+
+@app.route('/api/hang-profiles', methods=['GET'])
+def api_list_hang_profiles():
+    return jsonify({'profiles': load_hang_profiles()})
+
+
+@app.route('/api/hang-profiles', methods=['POST'])
+def api_create_hang_profile():
+    data = request.get_json(force=True, silent=True) or {}
+    name = (data.get('name') or '').strip()
+    if not name:
+        return jsonify({'error': 'Profile name is required.'}), 400
+    with STATE_LOCK:
+        profiles = load_hang_profiles()
+        existing = {p['id'] for p in profiles}
+        profile = {'id': unique_slug(slugify(name), existing), 'name': name, 'version': 1}
+        for field in HANG_PROFILE_FIELDS:
+            profile[field] = data.get(field, HANG_PROFILE_DEFAULTS[field])
+        profiles.append(profile)
+        save_hang_profiles(profiles)
+    return jsonify(profile)
+
+
+@app.route('/api/hang-profiles/<profile_id>', methods=['PATCH'])
+def api_update_hang_profile(profile_id):
+    data = request.get_json(force=True, silent=True) or {}
+    with STATE_LOCK:
+        profiles = load_hang_profiles()
+        profile = next((p for p in profiles if p['id'] == profile_id), None)
+        if not profile:
+            return jsonify({'error': 'Profile not found.'}), 404
+        if 'name' in data and (data.get('name') or '').strip():
+            profile['name'] = data['name'].strip()
+        for field in HANG_PROFILE_FIELDS:
+            if field in data:
+                profile[field] = data[field]
+        profile['version'] = profile.get('version', 1) + 1
+        save_hang_profiles(profiles)
+    return jsonify(profile)
+
+
+@app.route('/api/hang-profiles/<profile_id>', methods=['DELETE'])
+def api_delete_hang_profile(profile_id):
+    with STATE_LOCK:
+        profiles = load_hang_profiles()
+        remaining = [p for p in profiles if p['id'] != profile_id]
+        if len(remaining) == len(profiles):
+            return jsonify({'error': 'Profile not found.'}), 404
+        save_hang_profiles(remaining)
+    return jsonify({'ok': True})
 
 
 # --- Per-date job APIs ----------------------------------------------------
@@ -654,10 +797,13 @@ def api_upload(show_slug, date_slug):
         existing = load_job(show_slug, date_slug)
         if existing is None:
             return jsonify({'error': 'Not found.'}), 404
+        show = get_show(show_slug)
+        if not show:
+            return jsonify({'error': 'Show not found.'}), 404
         # Title/venue/date belong to this Date (set at creation, editable
         # from the sidebar) -- an uploaded file replaces the parsed
         # cabinet data, not the show info already attached to this URL.
-        job = build_job(sections, file.filename, page_header=existing.get('page_header'))
+        job = build_job(sections, file.filename, page_header=existing.get('page_header'), show=show)
         # Data Tags/Data Bar overrides are Date-level preferences, not
         # something tied to the specific cabinets just replaced -- carry
         # them forward explicitly, same as page_header above, since

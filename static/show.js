@@ -88,11 +88,10 @@ let SHOW_HIDDEN_TAGS = [];
 const DATA_BAR_MODES = ['side-left', 'side-right', 'bottom', 'hidden'];
 let SHOW_DATA_BAR_MODE = null;
 
-// Circuit/hang colors and breakout numbering -- global (not per-show), the
-// same "next new date" carry-forward settings build_job() seeds every fresh
-// Date from (see api.py's save_global_settings). Editing them here edits
-// that shared default directly, same convention as Data Tags/Data Bar
-// above, just global in scope instead of scoped to this show.
+// Circuit/hang colors and breakout numbering -- this Show's own standing
+// default (show.circuit_color_config), same convention as Data Tags/Data
+// Bar above; falls back to the legacy global sidecar only for a Show that
+// hasn't set its own yet (see loadShowSettings).
 const CIRCUIT_COLOR_CONFIG_DEFAULT = {
   enabled: false, show_row_fill: true, circuit_colors: [], cycle_length: 4, hang_colors: [],
   circuit_set_enabled: false, circuit_set_colors: [], hid_bundle_size: 4, breakout_cable_name: 'Trunk Cable',
@@ -100,16 +99,28 @@ const CIRCUIT_COLOR_CONFIG_DEFAULT = {
 };
 let CIRCUIT_COLOR_CONFIG = { ...CIRCUIT_COLOR_CONFIG_DEFAULT };
 
+// This Show's own tape-burn-footage default -- a plain per-show field on
+// show.json, no cascade of its own to resolve here (unlike Data Bar/
+// Colors, which fall back further to a global default for shows that
+// haven't set one).
+let SHOW_TAPE_BURN_DEFAULT_FT = 0;
+
 function loadShowSettings() {
   return Promise.all([
     fetch('/api/design-fields').then(r => r.ok ? r.json() : { metadata_fields: [] }),
     fetch('/api/shows/' + encodeURIComponent(SHOW_SLUG)).then(r => r.ok ? r.json() : { hidden_tags: [], data_bar_mode: null }),
     fetch('/api/circuit-color-config').then(r => r.ok ? r.json() : CIRCUIT_COLOR_CONFIG_DEFAULT),
-  ]).then(([design, show, colorConfig]) => {
+  ]).then(([design, show, globalColorConfig]) => {
     DESIGN_METADATA_FIELDS = design.metadata_fields || [];
     SHOW_HIDDEN_TAGS = show.hidden_tags || [];
     SHOW_DATA_BAR_MODE = DATA_BAR_MODES.includes(show.data_bar_mode) ? show.data_bar_mode : null;
+    // This Show's own circuit_color_config default (see app.py's
+    // api_set_show_circuit_color_config) wins when set; a Show that hasn't
+    // set one yet (null) falls back to the legacy global sidecar, same
+    // cascade build_job() uses server-side.
+    const colorConfig = show.circuit_color_config || globalColorConfig;
     CIRCUIT_COLOR_CONFIG = { ...CIRCUIT_COLOR_CONFIG_DEFAULT, ...colorConfig };
+    SHOW_TAPE_BURN_DEFAULT_FT = show.tape_burn_default_ft || 0;
   });
 }
 
@@ -124,12 +135,14 @@ const CONFIG_GROUPS = [
   { id: 'dataBar', label: 'Data Bar' },
   { id: 'colors', label: 'Colors' },
   { id: 'numbering', label: 'Circuit Numbering' },
+  { id: 'tapeBurn', label: 'Tape Burn' },
   { id: 'platformProfiles', label: 'Platform Profiles' },
 ];
 let CONFIG_ACTIVE_GROUP = CONFIG_GROUPS[0].id;
 let CONFIG_DRAFT_HIDDEN_TAGS = [];
 let CONFIG_DRAFT_DATA_BAR_MODE = null;
 let CONFIG_DRAFT_CIRCUIT_COLOR_CONFIG = { ...CIRCUIT_COLOR_CONFIG_DEFAULT };
+let CONFIG_DRAFT_TAPE_BURN_DEFAULT_FT = 0;
 
 function renderConfigGroups() {
   const list = document.getElementById('configGroupsList');
@@ -152,8 +165,32 @@ function renderConfigOptions() {
   if (CONFIG_ACTIVE_GROUP === 'dataBar') renderConfigDataBarOptions();
   else if (CONFIG_ACTIVE_GROUP === 'colors') renderConfigColorsOptions();
   else if (CONFIG_ACTIVE_GROUP === 'numbering') renderConfigNumberingOptions();
+  else if (CONFIG_ACTIVE_GROUP === 'tapeBurn') renderConfigTapeBurnOptions();
   else if (CONFIG_ACTIVE_GROUP === 'platformProfiles') renderConfigPlatformProfilesOptions();
   else renderConfigDataTagsOptions();
+}
+
+// Show-wide default for how many feet a tape measure's burnt (missing)
+// first foot(s) throw off a raw reading -- a Date, then an individual
+// hang, can each override this from the Date page itself (see
+// makeTapeBurnRow in app.js); this is just the bottom of that cascade.
+function renderConfigTapeBurnOptions() {
+  const pane = document.getElementById('configOptionsPane');
+  pane.innerHTML = '';
+  const note = document.createElement('p');
+  note.className = 'panel-note';
+  note.textContent = 'Default burn footage for every date/hang in this show -- an individual date or hang can still override it for itself from the Tape Burn row\'s fire icon on the Date page.';
+  pane.appendChild(note);
+  const row = document.createElement('div');
+  row.className = 'swatchRow';
+  row.appendChild(document.createTextNode('Burn (ft):'));
+  const input = document.createElement('input');
+  input.type = 'number';
+  input.step = '0.1';
+  input.value = CONFIG_DRAFT_TAPE_BURN_DEFAULT_FT;
+  input.addEventListener('change', e => { CONFIG_DRAFT_TAPE_BURN_DEFAULT_FT = parseFloat(e.target.value) || 0; });
+  row.appendChild(input);
+  pane.appendChild(row);
 }
 
 function renderConfigDataTagsOptions() {
@@ -202,8 +239,8 @@ function renderConfigDataBarOptions() {
   });
 }
 
-// Circuit/hang colors and breakout numbering -- global, not scoped to this
-// show (see CIRCUIT_COLOR_CONFIG above), so these two panes mirror the Date
+// Circuit/hang colors and breakout numbering -- this Show's own default
+// (see CIRCUIT_COLOR_CONFIG above), so these two panes mirror the Date
 // page's Colors/Circuit Numbering panels (app.js's renderColorPanel/
 // renderNumberingPanel) almost field-for-field, just operating on
 // CONFIG_DRAFT_CIRCUIT_COLOR_CONFIG instead of a specific Date's own
@@ -547,6 +584,7 @@ function openConfigModal() {
     CONFIG_DRAFT_HIDDEN_TAGS = [...SHOW_HIDDEN_TAGS];
     CONFIG_DRAFT_DATA_BAR_MODE = SHOW_DATA_BAR_MODE;
     CONFIG_DRAFT_CIRCUIT_COLOR_CONFIG = JSON.parse(JSON.stringify(CIRCUIT_COLOR_CONFIG));
+    CONFIG_DRAFT_TAPE_BURN_DEFAULT_FT = SHOW_TAPE_BURN_DEFAULT_FT;
     renderConfigGroups();
     renderConfigOptions();
     document.getElementById('configureShowModal').hidden = false;
@@ -569,14 +607,19 @@ function applyConfigChanges() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ data_bar_mode: CONFIG_DRAFT_DATA_BAR_MODE }),
     }),
-    fetch('/api/circuit-color-config', {
+    fetch('/api/shows/' + encodeURIComponent(SHOW_SLUG) + '/circuit-color-config', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(CONFIG_DRAFT_CIRCUIT_COLOR_CONFIG),
+      body: JSON.stringify({ circuit_color_config: CONFIG_DRAFT_CIRCUIT_COLOR_CONFIG }),
     }),
-  ]).then(async ([tagsRes, barRes, colorsRes]) => {
-    if (!tagsRes.ok || !barRes.ok || !colorsRes.ok) {
-      const failed = !tagsRes.ok ? tagsRes : (!barRes.ok ? barRes : colorsRes);
+    fetch('/api/shows/' + encodeURIComponent(SHOW_SLUG) + '/tape-burn-default', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tape_burn_default_ft: CONFIG_DRAFT_TAPE_BURN_DEFAULT_FT }),
+    }),
+  ]).then(async ([tagsRes, barRes, colorsRes, tapeBurnRes]) => {
+    if (!tagsRes.ok || !barRes.ok || !colorsRes.ok || !tapeBurnRes.ok) {
+      const failed = !tagsRes.ok ? tagsRes : (!barRes.ok ? barRes : (!colorsRes.ok ? colorsRes : tapeBurnRes));
       const body = await failed.json().catch(() => ({}));
       alert(body.error || 'Could not save settings.');
       return false;
@@ -584,6 +627,7 @@ function applyConfigChanges() {
     SHOW_HIDDEN_TAGS = [...CONFIG_DRAFT_HIDDEN_TAGS];
     SHOW_DATA_BAR_MODE = CONFIG_DRAFT_DATA_BAR_MODE;
     CIRCUIT_COLOR_CONFIG = JSON.parse(JSON.stringify(CONFIG_DRAFT_CIRCUIT_COLOR_CONFIG));
+    SHOW_TAPE_BURN_DEFAULT_FT = CONFIG_DRAFT_TAPE_BURN_DEFAULT_FT;
     return true;
   });
 }

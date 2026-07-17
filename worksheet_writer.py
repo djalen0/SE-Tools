@@ -149,28 +149,39 @@ def _assign_circuit_colors(cabinets, palette):
     return assignment
 
 
-def _assign_circuit_set_colors(cabinets, palette, cycle_length):
+def _assign_circuit_set_colors(cabinets, palette, cycle_length, overrides=None):
     """
     Group distinct Circuit # values (in first-seen order) into consecutive
-    sets of `cycle_length`, and map every circuit in a set to that set's
-    color from `palette` (wrapping back to the start of the palette after 8
-    sets). This is a second, independent grouping from the row-level circuit
-    color cycle -- e.g. with cycle_length=4, circuits 1-4 are "Set 1" and all
-    share one set color, circuits 5-8 are "Set 2" and share the next, and so
-    on, regardless of which of the 4 circuit-fill colors each individual row
-    ends up with.
+    sets of `cycle_length` -- each set is one physical Hi-D breakout cable.
+    Normally each set just gets the next color in `palette` in strict
+    sequence (set 1 -> cable 1/brown, set 2 -> cable 2/red, ...), but
+    `overrides` (a set's first Circuit # -> forced 1-based cable #) lets a
+    hang whose box count/patching changed pin a specific set to the cable
+    it's really plugged into -- every later un-overridden set then keeps
+    counting up FROM that override, not from 1. Mirrors assignCircuitSetColors
+    in static/app.js exactly, so the exported workbook's stripe colors always
+    match what's on screen.
     """
     assignment = {}
     if not palette:
         return assignment
     cycle_length = max(1, cycle_length)
+    overrides = overrides or {}
     seen_order = []
+    seen = set()
     for cabinet in cabinets:
         ckt = _circuit_identity(cabinet)
-        if ckt not in assignment:
+        if ckt not in seen:
+            seen.add(ckt)
             seen_order.append(ckt)
-            set_index = (len(seen_order) - 1) // cycle_length
-            assignment[ckt] = palette[set_index % len(palette)]
+    current = 0
+    for i in range(0, len(seen_order), cycle_length):
+        bundle = seen_order[i:i + cycle_length]
+        override = overrides.get(bundle[0])
+        current = int(override) if override else current + 1
+        fill = palette[(current - 1) % len(palette)]
+        for ckt in bundle:
+            assignment[ckt] = fill
     return assignment
 
 
@@ -402,8 +413,11 @@ def write_master_workbook(sections, design_path, output_path, cards_per_row=2, p
         # box slot), independent of the row-level circuit-color cycle above,
         # if this section's header matches a hang_colors entry -- e.g. every
         # "Side" card gets a white stripe next to it while its box rows still
-        # cycle normally.
-        section_fill_hex = _hang_stripe_fill(section['header'], circuit_color_config['hang_colors']) if circuit_coloring_on else None
+        # cycle normally. A direct per-hang color (section['hang_color'],
+        # set via a linked Hang Profile) always wins over the name match.
+        section_fill_hex = (
+            section.get('hang_color') or _hang_stripe_fill(section['header'], circuit_color_config['hang_colors'])
+        ) if circuit_coloring_on else None
         stripe_last_row = block_row + layout['box_start_row_offset'] + max_boxes - 1
         if section_fill_hex and block_start_col > 2:
             outer_col = block_start_col - 2
@@ -422,8 +436,17 @@ def write_master_workbook(sections, design_path, output_path, cards_per_row=2, p
         # modeled on).
         circuit_set_on = circuit_color_config['circuit_set_enabled']
         circuit_set_palette = circuit_color_config['circuit_set_colors']
+        # Bundle size here MUST be hid_bundle_size (circuits per physical
+        # breakout cable), not the row-fill `cycle_length` above -- they're
+        # two independent settings that happen to share a config panel, and
+        # the stripe's grouping has to match the actual breakout cable size
+        # to agree with the on-screen version (see assignCircuitSetColors in
+        # static/app.js).
         circuit_set_fill_map = (
-            _assign_circuit_set_colors(cabinets, circuit_set_palette, cycle_length)
+            _assign_circuit_set_colors(
+                cabinets, circuit_set_palette, circuit_color_config.get('hid_bundle_size') or 4,
+                section.get('hid_cable_overrides'),
+            )
             if circuit_set_on else {}
         )
         if (circuit_set_on or section_fill_hex) and block_start_col > 1:

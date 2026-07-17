@@ -540,6 +540,43 @@ input[type=text], input[type=number] {
   cursor: pointer;
 }
 .card.meta-expanded .meta-toggle-btn { background: var(--accent); color: #fff; border-color: var(--accent); }
+/* Always visible (unlike .meta-toggle-btn above) -- opens the Hang Define
+   popover, see makeHangDefineTrigger/renderHangDefinePopover. */
+.hang-define-trigger-btn {
+  display: inline-flex; flex: 0 0 auto; align-items: center; justify-content: center;
+  font-size: 12px; background: #fff; border: 1px solid var(--border-strong);
+  border-radius: 999px; padding: 3px 8px; cursor: pointer; opacity: 0.7;
+}
+.hang-define-trigger-btn:hover { opacity: 1; border-color: var(--accent); }
+.hang-define-trigger-btn.hang-define-active { opacity: 1; background: var(--accent); border-color: var(--accent); color: #fff; }
+/* Expands in place below the card title (see renderCard/
+   renderHangDefinePopover in app.js) -- normal document flow, not a
+   floating overlay, so it never fights .card's own overflow:hidden. */
+.hang-define-popover {
+  display: flex; flex-direction: column; gap: 6px; padding: 10px 12px;
+  background: #f6f7fb; border-bottom: 1px solid var(--border); font-size: 13px;
+}
+.hang-define-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.hang-define-row label { font-weight: 700; color: var(--text-muted); min-width: 130px; }
+.hang-define-section-label { font-weight: 700; margin-top: 4px; }
+.hang-define-popover input[type="text"], .hang-define-popover input[type="number"], .hang-define-popover select {
+  font-size: 13px; padding: 3px 6px; flex: 1 1 auto; min-width: 0;
+}
+.hang-define-popover hr { width: 100%; border: none; border-top: 1px solid var(--border); margin: 2px 0; }
+/* Fixed-position, stacked bottom-up as checkHangProfileVersions works
+   through its queue one hang at a time -- see showNextHangProfileMismatch
+   in app.js. */
+.hang-profile-mismatch-banner {
+  position: fixed; left: 50%; bottom: 16px; transform: translateX(-50%);
+  z-index: 50; display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  max-width: calc(100vw - 32px); background: var(--text); color: #fff;
+  border-radius: var(--radius); padding: 10px 14px; box-shadow: var(--shadow);
+  font-size: 13px;
+}
+.hang-profile-mismatch-banner button {
+  background: #fff; color: var(--text); border: none; border-radius: var(--radius-sm);
+  padding: 4px 10px; cursor: pointer; font-weight: 700;
+}
 .card-body { display: flex; flex-direction: column; }
 .box-list { border-bottom: 1px solid var(--border); }
 .box-row { display: flex; height: var(--row-h); align-items: center; border-bottom: 1px solid #edeef3; font-size: 13px; padding: 0 10px; box-sizing: border-box; }
@@ -592,6 +629,38 @@ input[type=text], input[type=number] {
      sits -- so two vertically-adjacent rows in the same breakout group
      (same color) paint as one unbroken column instead of a stack of
      visibly separate segments. */
+}
+/* Only the first box row of each Hi-D bundle gets this -- see renderCard's
+   hidBundleStartKeys. Clicking opens the Hi-D cable dropdown (see
+   openHidCableDropdown) to override which physical cable # this bundle is
+   actually on. */
+.circuit-set-stripe-editable { cursor: pointer; }
+/* Always-visible caret so a plain color bar reads as clickable even in a
+   static screenshot, not just on hover -- see the editIcon comment in
+   renderCard. White-on-dark-outline works against any stripe color
+   without having to compute contrast per swatch. */
+.circuit-set-edit-icon {
+  position: absolute; left: 0; right: 0; top: 2px; text-align: center;
+  font-size: 12px; font-weight: 900; line-height: 1; color: #fff; pointer-events: none;
+  text-shadow: 0 0 2px #000, 0 0 2px #000, 0 1px 1px #000;
+}
+/* Cable-# / color picker opened by clicking the stripe -- see
+   openHidCableDropdown in app.js. Anchored to .ckt-wrap (position:
+   relative), which already hosts the stripe itself. */
+.hid-cable-dropdown {
+  position: absolute; left: -26px; top: 100%; z-index: 20;
+  background: var(--surface); border: 1px solid var(--border-strong); border-radius: var(--radius-sm);
+  box-shadow: var(--shadow); max-height: 220px; overflow-y: auto; min-width: 110px;
+}
+.hid-cable-dropdown-option {
+  display: flex; align-items: center; gap: 6px; padding: 5px 10px;
+  font-size: 12px; white-space: nowrap; cursor: pointer;
+}
+.hid-cable-dropdown-option:hover { background: var(--accent-soft); }
+.hid-cable-dropdown-option.selected { font-weight: 700; background: var(--accent-soft); }
+.hid-cable-dropdown-swatch {
+  width: 14px; height: 14px; border-radius: 3px; flex: 0 0 auto;
+  border: 1px solid rgba(0,0,0,0.15);
 }
 /* Ink-friendly mode's stand-in for painting the whole row (see renderCard
    in app.js) -- a small dedicated chip instead, since most of a painted
@@ -724,6 +793,20 @@ input[type=text], input[type=number] {
   font-size: 17px; font-weight: 700; color: var(--text); flex: 1 1 auto; min-width: 0;
   white-space: normal; overflow-wrap: anywhere;
 }
+/* The raw/"Burnt Trim" reading shown alongside a Trim row's True Trim
+   value (see renderCard in app.js) -- red/maroon so a burnt (not-yet-
+   corrected) reading never gets mistaken for the real distance. */
+.trim-burnt-value { color: #b42318; font-weight: 700; }
+/* Fire icon on the "Tape Burn" row (see makeTapeBurnRow in app.js) --
+   click to swap the value for a small number input, right on the card.
+   Disabled for signed-out/view-only visitors by the same global lock
+   (applyViewOnlyLock) as every other editable control. */
+.tape-burn-btn {
+  padding: 0; border: none; background: none; cursor: pointer;
+  font-size: 13px; line-height: 1; margin-left: 4px; vertical-align: middle;
+}
+.tape-burn-btn:disabled { cursor: not-allowed; opacity: 0.4; }
+.tape-burn-ft-input { width: 52px; font-size: 13px; padding: 1px 3px; }
 
 /* --- Data Tags responsiveness --------------------------------------------
    Keyed to the CARD's own rendered width (via container-type:inline-size
@@ -1003,9 +1086,12 @@ body.print-mode-grid .card .meta-col {
   .mobile-topbar, .sidebar, .sidebar-backdrop, .sidebar-toggle-tab, .content-header, .empty-state, .status-msg, .view-only-topbar, .hang-tabs, #dataTagsPanel { display: none !important; }
   .meta-toggle-btn { display: none !important; }
   /* Editing/local-preference affordances that mean nothing on paper --
-     the lock icon and login popover, and the per-chip "hide this tag"
-     controls (a per-device viewing preference, not shared data). */
-  .auth-lock-btn, .auth-popover, .badge-view-only, .meta-row-hide-btn, .meta-show-all-btn { display: none !important; }
+     the lock icon and login popover, the per-chip "hide this tag"
+     controls (a per-device viewing preference, not shared data), and the
+     Hang Define trigger (the Trim row's own "+Nft" already covers
+     tape-burn context on paper -- see renderCard). */
+  .auth-lock-btn, .auth-popover, .badge-view-only, .meta-row-hide-btn, .meta-show-all-btn,
+  .hang-define-trigger-btn, .hang-define-popover { display: none !important; }
   .card:not(.meta-expanded) .meta-col { display: grid !important; }
   .app-shell { display: block; }
   .main-content { width: 100%; }

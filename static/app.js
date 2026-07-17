@@ -73,6 +73,23 @@ async function loadShowMeta() {
   SHOW_META = res.ok ? await res.json() : {hidden_tags: [], data_bar_mode: null};
 }
 
+// Global (not per-show) Hang Profiles -- see applyHangProfileToSection and
+// the Hang Define popover (makeHangDefineTrigger/renderHangDefinePopover)
+// below. Loaded once per page; refreshed after any create/update/delete.
+let HANG_PROFILES = [];
+
+async function loadHangProfiles() {
+  const res = await fetch('/api/hang-profiles');
+  HANG_PROFILES = res.ok ? (await res.json()).profiles || [] : [];
+}
+
+// Which section (by object identity -- STATE.sections entries are mutated
+// in place, not replaced, so this reference stays valid across render()
+// calls) currently has its Hang Define popover open. A plain local closure
+// variable wouldn't survive renderCard rebuilding the whole card on every
+// edit inside the popover, which is why this lives at module scope instead.
+let openHangDefineSection = null;
+
 // Data Bar (the Mode/Aim/Trim/Angle/etc. panel) placement -- Date override
 // beats Show default beats null ("no override, use the automatic
 // card-width-driven placement" -- see the "Data Bar mode" CSS rules).
@@ -201,6 +218,90 @@ function makeTagHideBtn(section, key, label) {
   return btn;
 }
 
+// True for the entire duration of a print/PDF export (see runPrint) --
+// body carries one of these classes from just before populateGrid()
+// rebuilds the grid for print through to cleanup, so renderCard can tell
+// it's building the printed version of a card, not the on-screen one.
+function isPrintMode() {
+  return document.body.classList.contains('print-mode-grid') || document.body.classList.contains('print-mode-mobile');
+}
+
+// Effective tape-burn footage for a hang -- hang's own override, then this
+// Date's, then the Show's standing default, then 0. Same null-cascade
+// convention as resolveDataBarMode above.
+function resolveTapeBurnFt(section) {
+  if (section && typeof section.tape_burn_ft === 'number') return section.tape_burn_ft;
+  if (STATE && typeof STATE.tape_burn_override_ft === 'number') return STATE.tape_burn_override_ft;
+  if (SHOW_META && typeof SHOW_META.tape_burn_default_ft === 'number') return SHOW_META.tape_burn_default_ft;
+  return 0;
+}
+
+// A tape measure missing its first foot or two reads that many feet long
+// on every measurement -- splits the raw Trim value into its leading
+// number and whatever suffix follows (e.g. "52 ft" -> 52 and " ft"),
+// subtracts the burn, and reattaches the suffix. Falls back to the raw
+// value unchanged if it doesn't start with a number, rather than erroring.
+function trueTrimValue(raw, burnFt) {
+  const m = String(raw).match(/^(-?\d+(?:\.\d+)?)(.*)$/);
+  if (!m) return raw;
+  const num = Math.round((parseFloat(m[1]) - burnFt) * 100) / 100;
+  return num + m[2];
+}
+
+// One shared "Tape Burn" row per hang, right after its Trim row(s) --
+// shows this hang's effective burn footage (see resolveTapeBurnFt's
+// hang/date/show cascade). Editable right here (fire icon swaps the value
+// for a number input) as well as from the Hang Define popover -- both
+// read/write the same section.tape_burn_ft, so they always stay in sync.
+// Signed-out/view-only visitors can't use either: the fire icon and the
+// input it reveals both go through the normal editable-controls set that
+// applyViewOnlyLock() disables, same as every other in-card control.
+function makeTapeBurnRow(section) {
+  const row = document.createElement('div');
+  row.className = 'meta-row';
+  const l = document.createElement('div');
+  l.className = 'meta-label';
+  l.textContent = 'Tape Burn';
+  const v = document.createElement('div');
+  v.className = 'meta-value';
+  const burnFt = resolveTapeBurnFt(section);
+
+  const valueSpan = document.createElement('span');
+  valueSpan.textContent = burnFt + ' ft';
+  v.appendChild(valueSpan);
+
+  const editBtn = document.createElement('button');
+  editBtn.type = 'button';
+  editBtn.className = 'tape-burn-btn';
+  editBtn.title = "This hang's tape-burn footage -- click to edit (also editable from the hang's Define menu)";
+  editBtn.setAttribute('aria-label', 'Edit tape burn footage');
+  editBtn.textContent = '\u{1F525}';
+  editBtn.addEventListener('click', e => {
+    e.stopPropagation();
+    const input = document.createElement('input');
+    input.type = 'number';
+    input.step = '0.1';
+    input.className = 'tape-burn-ft-input';
+    input.value = burnFt;
+    input.addEventListener('click', e2 => e2.stopPropagation());
+    const commit = () => {
+      const n = parseFloat(input.value);
+      section.tape_burn_ft = Number.isFinite(n) ? n : null;
+      render();
+      saveState(false);
+    };
+    input.addEventListener('blur', commit);
+    input.addEventListener('keydown', e2 => { if (e2.key === 'Enter') input.blur(); });
+    v.replaceChild(input, valueSpan);
+    input.focus();
+    input.select();
+  });
+  v.appendChild(editBtn);
+
+  row.appendChild(l); row.appendChild(v);
+  return row;
+}
+
 // The card grid is mobile-first: below this width cards always stack one
 // per row (a "cards per row" setting of 2+ would be unreadably narrow on a
 // phone), regardless of the user's cards_per_row preference -- only above
@@ -317,11 +418,148 @@ function assignCircuitColors(cabinets, palette) {
   return map;
 }
 
-function assignCircuitSetColors(cabinets, palette, cycleLength) {
+// Distinct (pre-Hi-D) circuit numbers, in first-seen order, chunked into
+// bundles of `cycleLength` -- the same grouping assignCircuitSetColors and
+// getHidBundleStartKeys both need, factored out so they can't drift apart.
+function hidBundleOrder(cabinets, cycleLength) {
+  const cl = Math.max(1, cycleLength || 1);
+  const seen = new Set();
+  const order = [];
+  cabinets.forEach(cab => {
+    const ckt = cab._normalCkt !== undefined ? cab._normalCkt : cab.ckt;
+    if (!seen.has(ckt)) { seen.add(ckt); order.push(ckt); }
+  });
+  const bundles = [];
+  for (let i = 0; i < order.length; i += cl) bundles.push(order.slice(i, i + cl));
+  return bundles;
+}
+
+// Copies a Hang Profile's whole field set onto one section and links it
+// (hang_profile_id/hang_profile_version) -- used both when the SE
+// explicitly applies a profile from the Hang Define popover and when they
+// answer "keep linked" to the version-mismatch prompt (see
+// checkHangProfileVersions). Caller is responsible for render()/saveState.
+function applyHangProfileToSection(section, profile) {
+  if (profile.rename_to) section.header = profile.rename_to;
+  section.tape_burn_ft = profile.tape_burn_ft;
+  section.hang_color = profile.hang_color;
+  section.hid_reverse_order = profile.hid_reverse_order !== false;
+  section.hidden_tags_overrides = {};
+  (profile.hidden_tags || []).forEach(key => { section.hidden_tags_overrides[key] = true; });
+
+  const bundleSize = (STATE.circuit_color_config && STATE.circuit_color_config.hid_bundle_size) || 4;
+  const bundles = hidBundleOrder(section.cabinets || [], bundleSize);
+  const startBreakout = profile.start_breakout || 1;
+  section.hid_cable_overrides = (startBreakout > 1 && bundles.length) ? { [bundles[0][0]]: startBreakout } : {};
+
+  section.apply_manual_circuiting = !!profile.apply_manual_circuiting;
+  section.manual_circuit_pattern = profile.manual_circuit_pattern || [];
+  if (section.apply_manual_circuiting && section.manual_circuit_pattern.length) {
+    applyManualCircuitPattern(section);
+  } else {
+    // Manual circuiting (above) fully replaces the circuit numbers, so it
+    // always wins outright. Otherwise, (re-)derive this hang's Hi-D leg
+    // numbers right now so start_breakout/hid_reverse_order actually show
+    // up on the sheet immediately -- without this, applying a profile just
+    // silently sets flags with no visible effect (same gap the reverse-
+    // order checkbox itself had, see renderHangDefinePopover).
+    applyHiDNumbering([section], bundleSize);
+  }
+
+  section.hang_profile_id = profile.id;
+  section.hang_profile_version = profile.version;
+}
+
+// Tiles a manual circuit-numbering pattern (e.g. [1,2,1] for a cardioid
+// sub hang) across a hang's cabinets in order, repeating as needed --
+// used both by applyHangProfileToSection and directly from the Hang
+// Define popover when the SE edits the pattern by hand (not through a
+// profile). Clears _normalCkt on every touched cabinet since the manual
+// values become the new baseline, not a Hi-D-converted label.
+function applyManualCircuitPattern(section) {
+  const pattern = section.manual_circuit_pattern || [];
+  if (!pattern.length) return;
+  (section.cabinets || []).forEach((cab, i) => {
+    cab.ckt = String(pattern[i % pattern.length]);
+    delete cab._normalCkt;
+  });
+}
+
+// Run once at page load, after both this Date's job and the global Hang
+// Profiles list are in hand -- a hang only ever re-adopts its linked
+// profile's settings on explicit action (see the Context note in the
+// plan), so a stale link isn't silently "fixed"; the SE is asked instead.
+function checkHangProfileVersions() {
+  if (!STATE || !STATE.sections) return;
+  const mismatches = STATE.sections.filter(section => {
+    if (!section.hang_profile_id) return false;
+    const profile = HANG_PROFILES.find(p => p.id === section.hang_profile_id);
+    return profile && profile.version !== section.hang_profile_version;
+  });
+  showNextHangProfileMismatch(mismatches);
+}
+
+// One banner at a time rather than a batch dialog -- keeps each decision
+// tied to its own hang's name instead of a confusing multi-item list.
+function showNextHangProfileMismatch(queue) {
+  if (!queue.length) return;
+  const section = queue[0];
+  const rest = queue.slice(1);
+  const profile = HANG_PROFILES.find(p => p.id === section.hang_profile_id);
+  // Profile got deleted between the filter pass above and now (shouldn't
+  // normally happen within one page load, but cheap to guard) -- nothing
+  // sensible to prompt about, skip straight to the next one.
+  if (!profile) { showNextHangProfileMismatch(rest); return; }
+
+  const banner = document.createElement('div');
+  banner.className = 'hang-profile-mismatch-banner';
+  const text = document.createElement('span');
+  text.textContent = `"${profile.name}" has changed since "${section.header}" last used it.`;
+  banner.appendChild(text);
+
+  const keepBtn = document.createElement('button');
+  keepBtn.type = 'button';
+  keepBtn.textContent = 'Keep linked (update)';
+  keepBtn.addEventListener('click', () => {
+    applyHangProfileToSection(section, profile);
+    banner.remove();
+    render();
+    saveState(false);
+    showNextHangProfileMismatch(rest);
+  });
+  banner.appendChild(keepBtn);
+
+  const independentBtn = document.createElement('button');
+  independentBtn.type = 'button';
+  independentBtn.textContent = 'Go independent';
+  independentBtn.title = 'Keep every current setting on this hang, just stop tracking the profile';
+  independentBtn.addEventListener('click', () => {
+    section.hang_profile_id = null;
+    section.hang_profile_version = null;
+    banner.remove();
+    render();
+    saveState(false);
+    showNextHangProfileMismatch(rest);
+  });
+  banner.appendChild(independentBtn);
+
+  document.body.appendChild(banner);
+}
+
+// Every physical Hi-D breakout cable normally gets the next color in the
+// palette in strict sequence (bundle 1 -> cable 1/brown, bundle 2 -> cable
+// 2/red, ...), but a hang whose box count changed (top boxes skipped, a
+// bundle re-patched to a different amp port) may not actually start on
+// cable 1 anymore -- `overrides` (a bundle's first circuit # -> forced
+// 1-based cable #) lets a specific bundle be pinned to the cable it's
+// really plugged into. Every later un-overridden bundle then keeps
+// counting up FROM that override, not from 1, so overriding just the
+// first bundle is enough to shift a whole truncated hang's coloring.
+function assignCircuitSetColors(cabinets, palette, cycleLength, overrides) {
   const assignment = {};
   if (!palette || !palette.length) return assignment;
-  const cl = Math.max(1, cycleLength || 1);
-  const seenOrder = [];
+  const ov = overrides || {};
+  let current = 0;
   // Group by the ORIGINAL (pre-Hi-D) circuit number, not the currently
   // displayed cab.ckt -- once Hi-D numbering is applied, every breakout
   // cable's legs get relabeled back to the same few strings (e.g. every
@@ -332,15 +570,400 @@ function assignCircuitSetColors(cabinets, palette, cycleLength) {
   // cab._normalCkt is the stable, never-repeating original circuit number,
   // so it's the right identity to window into breakout-sized groups
   // regardless of which numbering mode is currently displayed.
-  cabinets.forEach(cab => {
-    const ckt = cab._normalCkt !== undefined ? cab._normalCkt : cab.ckt;
-    if (!(ckt in assignment)) {
-      seenOrder.push(ckt);
-      const setIndex = Math.floor((seenOrder.length - 1) / cl);
-      assignment[ckt] = { fill: palette[setIndex % palette.length], patternIndex: setIndex % INK_PATTERN_COUNT };
-    }
+  hidBundleOrder(cabinets, cycleLength).forEach(bundle => {
+    const bundleKey = bundle[0];
+    const override = ov[bundleKey];
+    current = (override !== undefined && override !== null && override !== '' && Number(override) > 0)
+      ? Number(override)
+      : current + 1;
+    const fill = palette[(current - 1) % palette.length];
+    const patternIndex = (current - 1) % INK_PATTERN_COUNT;
+    bundle.forEach(ckt => { assignment[ckt] = { fill, patternIndex, cableNumber: current }; });
   });
   return assignment;
+}
+
+// Which distinct circuit # values start a new Hi-D bundle -- used to place
+// the "Cable #" override control on only the first box row of each bundle,
+// not every row in it.
+function getHidBundleStartKeys(cabinets, cycleLength) {
+  return new Set(hidBundleOrder(cabinets, cycleLength).map(bundle => bundle[0]));
+}
+
+// "Start on Breakout #" (Hang Define popover) is just a friendlier way to
+// set/read the SAME hid_cable_overrides entry the per-bundle stripe-click
+// override (above) writes -- specifically, the hang's first bundle.
+function getStartBreakout(section) {
+  const bundleSize = (STATE.circuit_color_config && STATE.circuit_color_config.hid_bundle_size) || 4;
+  const bundles = hidBundleOrder(section.cabinets || [], bundleSize);
+  if (!bundles.length) return 1;
+  return (section.hid_cable_overrides || {})[bundles[0][0]] || 1;
+}
+
+function setStartBreakout(section, n) {
+  const bundleSize = (STATE.circuit_color_config && STATE.circuit_color_config.hid_bundle_size) || 4;
+  const bundles = hidBundleOrder(section.cabinets || [], bundleSize);
+  section.hid_cable_overrides = (n > 1 && bundles.length) ? { [bundles[0][0]]: n } : {};
+}
+
+// A dropdown of "Cable N" options, each with a swatch of that cable's
+// actual palette color, anchored to the stripe that was clicked -- lets
+// the SE pick the cable they're really plugged into by its color, rather
+// than typing a bare number and having to remember number-to-color
+// mapping themselves. Offers two full cycles of the palette (or the
+// current value plus a few, whichever is larger) -- generous for any
+// realistically-sized rig without an unreasonably long list.
+function openHidCableDropdown(anchor, section, bundleKey, currentNumber, palette) {
+  const existing = anchor.querySelector('.hid-cable-dropdown');
+  if (existing) { existing.remove(); return; }
+  const pal = palette && palette.length ? palette : ['FFCCCCCC'];
+  const dropdown = document.createElement('div');
+  dropdown.className = 'hid-cable-dropdown';
+  const optionCount = Math.max(pal.length * 2, currentNumber + 4);
+  for (let n = 1; n <= optionCount; n++) {
+    const opt = document.createElement('div');
+    opt.className = 'hid-cable-dropdown-option' + (n === currentNumber ? ' selected' : '');
+    const swatch = document.createElement('span');
+    swatch.className = 'hid-cable-dropdown-swatch';
+    swatch.style.backgroundColor = argbToCss(pal[(n - 1) % pal.length]) || '#ccc';
+    opt.appendChild(swatch);
+    opt.appendChild(document.createTextNode('Cable ' + n));
+    opt.addEventListener('click', e => {
+      e.stopPropagation();
+      section.hid_cable_overrides = section.hid_cable_overrides || {};
+      if (n > 0) section.hid_cable_overrides[bundleKey] = n;
+      else delete section.hid_cable_overrides[bundleKey];
+      render();
+      saveState(false);
+    });
+    dropdown.appendChild(opt);
+  }
+  anchor.appendChild(dropdown);
+}
+
+// Opens/closes this hang's Hang Define popover -- see openHangDefineSection
+// above for why the open/closed state has to live at module scope rather
+// than a local closure.
+function makeHangDefineTrigger(section) {
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'hang-define-trigger-btn' + (openHangDefineSection === section ? ' hang-define-active' : '');
+  btn.textContent = '⚙️';
+  btn.title = 'Define this hang -- Hi-D start, tape burn, manual circuiting, color, name, data tags, and profiles';
+  btn.setAttribute('aria-label', 'Define this hang');
+  btn.addEventListener('click', e => {
+    e.stopPropagation();
+    openHangDefineSection = openHangDefineSection === section ? null : section;
+    render();
+  });
+  return btn;
+}
+
+// PATCHes a linked profile with this hang's CURRENT settings -- the
+// trigger for the version-mismatch prompt everywhere else that profile is
+// still linked at the old version (see checkHangProfileVersions).
+async function updateLinkedProfile(section, profile) {
+  if (!confirm(`Update profile "${profile.name}" with this hang's current settings? Every other hang linked to it will be asked to update the next time its page loads.`)) return;
+  const body = {
+    start_breakout: getStartBreakout(section),
+    hid_reverse_order: section.hid_reverse_order !== false,
+    tape_burn_ft: resolveTapeBurnFt(section),
+    apply_manual_circuiting: !!section.apply_manual_circuiting,
+    manual_circuit_pattern: section.manual_circuit_pattern || [],
+    hang_color: section.hang_color || null,
+    rename_to: section.header,
+    hidden_tags: allTagsWithLabels().map(t => t.key).filter(key => isTagHidden(key, section)),
+  };
+  const res = await fetch('/api/hang-profiles/' + encodeURIComponent(profile.id), {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) { flashStatus('Could not update profile'); return; }
+  const updated = await res.json();
+  const idx = HANG_PROFILES.findIndex(p => p.id === updated.id);
+  if (idx !== -1) HANG_PROFILES[idx] = updated;
+  section.hang_profile_version = updated.version; // this hang already matches what it just pushed
+  render();
+  saveState(false);
+  flashStatus('Profile updated');
+}
+
+// Inline "Save as new profile..." form -- same expand-in-place pattern as
+// show.js's renderNewProfileForm for Platform Profiles.
+function renderSaveHangProfileForm(pane, addBtn, section) {
+  addBtn.style.display = 'none';
+  const row = document.createElement('div');
+  row.className = 'hang-define-row';
+  const input = document.createElement('input');
+  input.type = 'text';
+  input.placeholder = 'Profile name (e.g. 16 Sub - Start Brown)';
+  row.appendChild(input);
+  const saveBtn = document.createElement('button');
+  saveBtn.type = 'button';
+  saveBtn.textContent = 'Save';
+  saveBtn.addEventListener('click', async () => {
+    const name = input.value.trim();
+    if (!name) return;
+    const body = {
+      name,
+      start_breakout: getStartBreakout(section),
+      hid_reverse_order: section.hid_reverse_order !== false,
+      tape_burn_ft: resolveTapeBurnFt(section),
+      apply_manual_circuiting: !!section.apply_manual_circuiting,
+      manual_circuit_pattern: section.manual_circuit_pattern || [],
+      hang_color: section.hang_color || null,
+      rename_to: section.header,
+      hidden_tags: allTagsWithLabels().map(t => t.key).filter(key => isTagHidden(key, section)),
+    };
+    const res = await fetch('/api/hang-profiles', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) { flashStatus('Could not save profile'); return; }
+    const profile = await res.json();
+    HANG_PROFILES.push(profile);
+    section.hang_profile_id = profile.id;
+    section.hang_profile_version = profile.version;
+    render();
+    saveState(false);
+  });
+  row.appendChild(saveBtn);
+  const cancelBtn = document.createElement('button');
+  cancelBtn.type = 'button';
+  cancelBtn.textContent = 'Cancel';
+  cancelBtn.addEventListener('click', () => { row.remove(); addBtn.style.display = ''; });
+  row.appendChild(cancelBtn);
+  pane.insertBefore(row, addBtn);
+  input.focus();
+}
+
+// The Hang Define popover itself -- every per-hang setting in one place
+// (Start on Breakout/Hi-D Reverse Order feed hid_cable_overrides/
+// hid_reverse_order, Tape Burn feeds tape_burn_ft, Manual Circuiting feeds
+// apply_manual_circuiting/manual_circuit_pattern, Hang Color feeds
+// hang_color, Hang name reuses renameHang, Data Tags reuses
+// setCardTagOverride), plus the profile link/apply/save/update controls.
+function renderHangDefinePopover(section) {
+  const pop = document.createElement('div');
+  pop.className = 'hang-define-popover';
+
+  const linkedProfile = section.hang_profile_id ? HANG_PROFILES.find(p => p.id === section.hang_profile_id) : null;
+  if (section.hang_profile_id) {
+    const linkRow = document.createElement('div');
+    linkRow.className = 'hang-define-row hang-define-section-label';
+    linkRow.textContent = linkedProfile ? `Linked to "${linkedProfile.name}"` : 'Linked to a profile that no longer exists';
+    pop.appendChild(linkRow);
+    const linkActionsRow = document.createElement('div');
+    linkActionsRow.className = 'hang-define-row';
+    if (linkedProfile) {
+      const updateBtn = document.createElement('button');
+      updateBtn.type = 'button';
+      updateBtn.textContent = 'Update linked profile';
+      updateBtn.addEventListener('click', () => updateLinkedProfile(section, linkedProfile));
+      linkActionsRow.appendChild(updateBtn);
+    }
+    const unlinkBtn = document.createElement('button');
+    unlinkBtn.type = 'button';
+    unlinkBtn.textContent = 'Unlink';
+    unlinkBtn.title = 'Keep every current setting, just stop tracking this profile';
+    unlinkBtn.addEventListener('click', () => {
+      section.hang_profile_id = null;
+      section.hang_profile_version = null;
+      render();
+      saveState(false);
+    });
+    linkActionsRow.appendChild(unlinkBtn);
+    pop.appendChild(linkActionsRow);
+  }
+
+  const applyRow = document.createElement('div');
+  applyRow.className = 'hang-define-row';
+  const select = document.createElement('select');
+  const noneOpt = document.createElement('option');
+  noneOpt.value = '';
+  noneOpt.textContent = HANG_PROFILES.length ? 'Apply a profile...' : 'No profiles saved yet';
+  select.appendChild(noneOpt);
+  HANG_PROFILES.forEach(p => {
+    const opt = document.createElement('option');
+    opt.value = p.id;
+    opt.textContent = p.name;
+    select.appendChild(opt);
+  });
+  applyRow.appendChild(select);
+  const applyBtn = document.createElement('button');
+  applyBtn.type = 'button';
+  applyBtn.textContent = 'Apply';
+  applyBtn.addEventListener('click', () => {
+    const profile = HANG_PROFILES.find(p => p.id === select.value);
+    if (!profile) return;
+    applyHangProfileToSection(section, profile);
+    render();
+    saveState(false);
+  });
+  applyRow.appendChild(applyBtn);
+  pop.appendChild(applyRow);
+
+  const saveNewBtn = document.createElement('button');
+  saveNewBtn.type = 'button';
+  saveNewBtn.className = 'hang-define-row';
+  saveNewBtn.textContent = 'Save as new profile…';
+  saveNewBtn.addEventListener('click', () => renderSaveHangProfileForm(pop, saveNewBtn, section));
+  pop.appendChild(saveNewBtn);
+
+  pop.appendChild(document.createElement('hr'));
+
+  const breakoutRow = document.createElement('div');
+  breakoutRow.className = 'hang-define-row';
+  const breakoutLabel = document.createElement('label');
+  breakoutLabel.textContent = 'Start on Breakout #';
+  breakoutRow.appendChild(breakoutLabel);
+  const breakoutInput = document.createElement('input');
+  breakoutInput.type = 'number';
+  breakoutInput.min = 1;
+  breakoutInput.value = getStartBreakout(section);
+  breakoutInput.addEventListener('change', e => {
+    setStartBreakout(section, parseInt(e.target.value, 10) || 1);
+    render();
+    saveState(false);
+  });
+  breakoutRow.appendChild(breakoutInput);
+  pop.appendChild(breakoutRow);
+
+  const reverseRow = document.createElement('label');
+  reverseRow.className = 'hang-define-row';
+  const reverseCb = document.createElement('input');
+  reverseCb.type = 'checkbox';
+  reverseCb.checked = section.hid_reverse_order !== false;
+  reverseCb.addEventListener('change', e => {
+    section.hid_reverse_order = e.target.checked;
+    // Re-derive this hang's Hi-D leg numbers immediately -- otherwise the
+    // flag just sits there with no visible effect until/unless the
+    // separate "Convert to Hi-D numbering" button (Numbering panel) gets
+    // clicked, which only actually does anything on the very first
+    // normal-to-Hi-D transition, not on a hang that's already converted.
+    applyHiDNumbering([section], (STATE.circuit_color_config && STATE.circuit_color_config.hid_bundle_size) || 4);
+    render();
+    saveState(false);
+  });
+  reverseRow.appendChild(reverseCb);
+  reverseRow.appendChild(document.createTextNode(' Hi-D Reverse Order (4,3,2,1)'));
+  pop.appendChild(reverseRow);
+
+  const burnRow = document.createElement('div');
+  burnRow.className = 'hang-define-row';
+  const burnLabel = document.createElement('label');
+  burnLabel.textContent = 'Tape Burn (ft)';
+  burnRow.appendChild(burnLabel);
+  const burnInput = document.createElement('input');
+  burnInput.type = 'number';
+  burnInput.step = '0.1';
+  burnInput.value = resolveTapeBurnFt(section);
+  burnInput.addEventListener('change', e => {
+    const n = parseFloat(e.target.value);
+    section.tape_burn_ft = Number.isFinite(n) ? n : null;
+    render();
+    saveState(false);
+  });
+  burnRow.appendChild(burnInput);
+  pop.appendChild(burnRow);
+
+  const manualRow = document.createElement('label');
+  manualRow.className = 'hang-define-row';
+  const manualCb = document.createElement('input');
+  manualCb.type = 'checkbox';
+  manualCb.checked = !!section.apply_manual_circuiting;
+  manualCb.addEventListener('change', e => {
+    section.apply_manual_circuiting = e.target.checked;
+    if (e.target.checked) applyManualCircuitPattern(section);
+    render();
+    saveState(false);
+  });
+  manualRow.appendChild(manualCb);
+  manualRow.appendChild(document.createTextNode(' Apply Manual Circuiting'));
+  pop.appendChild(manualRow);
+
+  if (section.apply_manual_circuiting) {
+    const patternRow = document.createElement('div');
+    patternRow.className = 'hang-define-row';
+    const patternInput = document.createElement('input');
+    patternInput.type = 'text';
+    patternInput.placeholder = 'e.g. 1,2,1';
+    patternInput.value = (section.manual_circuit_pattern || []).join(',');
+    patternInput.addEventListener('change', e => {
+      section.manual_circuit_pattern = e.target.value.split(',').map(s => s.trim()).filter(Boolean);
+      applyManualCircuitPattern(section);
+      render();
+      saveState(false);
+    });
+    patternRow.appendChild(patternInput);
+    pop.appendChild(patternRow);
+  }
+
+  const colorRow = document.createElement('div');
+  colorRow.className = 'hang-define-row';
+  const colorLabel = document.createElement('label');
+  colorLabel.textContent = 'Hang Color';
+  colorRow.appendChild(colorLabel);
+  const colorInput = document.createElement('input');
+  colorInput.type = 'color';
+  colorInput.value = argbToCss(section.hang_color) || '#ffffff';
+  colorInput.addEventListener('change', e => {
+    section.hang_color = cssToArgb(e.target.value);
+    render();
+    saveState(false);
+  });
+  colorRow.appendChild(colorInput);
+  const clearColorBtn = document.createElement('button');
+  clearColorBtn.type = 'button';
+  clearColorBtn.textContent = 'Clear';
+  clearColorBtn.addEventListener('click', () => {
+    section.hang_color = null;
+    render();
+    saveState(false);
+  });
+  colorRow.appendChild(clearColorBtn);
+  pop.appendChild(colorRow);
+
+  const nameRow = document.createElement('div');
+  nameRow.className = 'hang-define-row';
+  const nameLabel = document.createElement('label');
+  nameLabel.textContent = 'Hang name';
+  nameRow.appendChild(nameLabel);
+  const nameInput = document.createElement('input');
+  nameInput.type = 'text';
+  nameInput.value = section.header;
+  nameInput.addEventListener('change', e => {
+    const idx = STATE.sections.indexOf(section);
+    if (idx !== -1) renameHang(idx, e.target.value);
+  });
+  nameRow.appendChild(nameInput);
+  pop.appendChild(nameRow);
+
+  const tagsHeader = document.createElement('div');
+  tagsHeader.className = 'hang-define-row hang-define-section-label';
+  tagsHeader.textContent = 'Data Tags';
+  pop.appendChild(tagsHeader);
+  allTagsWithLabels().forEach(({label, key}) => {
+    const row = document.createElement('label');
+    row.className = 'hang-define-row';
+    const cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.checked = !isTagHidden(key, section);
+    cb.addEventListener('change', e => setCardTagOverride(section, key, !e.target.checked));
+    row.appendChild(cb);
+    row.appendChild(document.createTextNode(' ' + label));
+    pop.appendChild(row);
+  });
+
+  const closeBtn = document.createElement('button');
+  closeBtn.type = 'button';
+  closeBtn.textContent = 'Close';
+  closeBtn.addEventListener('click', () => { openHangDefineSection = null; render(); });
+  pop.appendChild(closeBtn);
+
+  return pop;
 }
 
 // Some brands' breakout hardware bundles several independent circuits
@@ -356,11 +979,15 @@ function assignCircuitSetColors(cabinets, palette, cycleLength) {
 // (captured once, the first time a section is converted) so "back to
 // Normal" can restore the original numbers exactly, since the Hi-D labels
 // themselves don't carry enough information to reconstruct them.
+// Legs count DOWN (4,3,2,1) by default -- some hangs (via a linked Hang
+// Profile, see applyHangProfileToSection) instead want them counting UP
+// (1,2,3,4), toggled per-section by section.hid_reverse_order === false.
 function applyHiDNumbering(sections, bundleSize) {
   const bs = Math.max(1, bundleSize || 4);
   (sections || []).forEach(section => {
     const cabinets = section.cabinets || [];
     cabinets.forEach(c => { if (c._normalCkt === undefined) c._normalCkt = c.ckt; });
+    const reverse = section.hid_reverse_order !== false;
 
     const distinctOrder = [];
     const seen = new Set();
@@ -372,7 +999,7 @@ function applyHiDNumbering(sections, bundleSize) {
     const mapping = {};
     distinctOrder.forEach((label, idx) => {
       const posInBundle = idx % bs;
-      mapping[label] = String(bs - posInBundle);
+      mapping[label] = String(reverse ? bs - posInBundle : posInBundle + 1);
     });
 
     cabinets.forEach(c => {
@@ -421,6 +1048,16 @@ function hangStripeColor(header, hangColors) {
 }
 
 function render() {
+  // grid.innerHTML = '' below briefly empties out most of the page's
+  // content -- if that happens while scrolled down (routine once a card
+  // has anything as tall as the Hang Define popover open), the browser
+  // clamps the page's scroll position to fit the momentarily-shorter
+  // document, and re-populating the grid right after doesn't restore it.
+  // Every single edit anywhere in a card re-renders the whole grid this
+  // way, so without this the page would jump to the top on every
+  // keystroke/click. Saved before any DOM changes, restored once the grid
+  // is fully rebuilt (end of this function).
+  const scrollX = window.scrollX, scrollY = window.scrollY;
   // Belt-and-suspenders alongside PRINT_IN_PROGRESS (see its own comment
   // for the individual listeners that check it) -- this is the backstop
   // for any render()-triggering path that flag *hasn't* been threaded
@@ -430,7 +1067,7 @@ function render() {
   // grid at all -- whatever called it, it would be overwriting the
   // export's own column count/content with the on-screen version,
   // corrupting the very layout the browser is mid-paginating.
-  if (document.body.classList.contains('print-mode-grid') || document.body.classList.contains('print-mode-mobile')) return;
+  if (isPrintMode()) return;
   const grid = document.getElementById('grid');
   const emptyState = document.getElementById('emptyState');
 
@@ -530,6 +1167,7 @@ function render() {
   renderDataBarPanel();
   renderHangsPanel();
   applyViewOnlyLock();
+  window.scrollTo(scrollX, scrollY);
 }
 
 function populateGrid(grid, sections) {
@@ -619,8 +1257,10 @@ function renderCard(section, cfg, activePalette, cycleLen) {
   // Always reserve this gutter's width, whether or not this section's
   // header actually matches a hang-color rule -- otherwise a card with no
   // match gets its whole card-content area wider than one that does,
-  // throwing off column alignment across the grid.
-  const stripe = hangStripeColor(section.header, cfg.hang_colors);
+  // throwing off column alignment across the grid. A direct per-hang
+  // color (section.hang_color, set via a linked Hang Profile) always wins
+  // over the show-wide name-matched hang_colors list.
+  const stripe = section.hang_color ? { fill: section.hang_color, patternIndex: 0 } : hangStripeColor(section.header, cfg.hang_colors);
   const bar = document.createElement('div');
   bar.className = 'hang-stripe-bar';
   if (stripe) {
@@ -652,7 +1292,14 @@ function renderCard(section, cfg, activePalette, cycleLen) {
   metaToggleBtn.setAttribute('aria-label', 'Show hang info');
   metaToggleBtn.addEventListener('click', () => card.classList.toggle('meta-expanded'));
   title.appendChild(metaToggleBtn);
+  title.appendChild(makeHangDefineTrigger(section));
   content.appendChild(title);
+  // Expands in place (normal document flow, pushing the box list down)
+  // rather than floating over the card -- same convention as the
+  // meta-expanded accordion reveal above, and avoids fighting .card's own
+  // overflow:hidden (used to clip the rounded corners/hang stripe) that a
+  // floating popover would need to escape.
+  if (openHangDefineSection === section) content.appendChild(renderHangDefinePopover(section));
 
   const body = document.createElement('div');
   body.className = 'card-body';
@@ -682,8 +1329,12 @@ function renderCard(section, cfg, activePalette, cycleLen) {
   // breakout cable size the user configured, not how many paint colors
   // are in the row-fill palette.
   const circuitSetFillMap = cfg.circuit_set_enabled
-    ? assignCircuitSetColors(section.cabinets, cfg.circuit_set_colors, cfg.hid_bundle_size || 4)
+    ? assignCircuitSetColors(section.cabinets, cfg.circuit_set_colors, cfg.hid_bundle_size || 4, section.hid_cable_overrides)
     : {};
+  const hidBundleStartKeys = cfg.circuit_set_enabled
+    ? getHidBundleStartKeys(section.cabinets, cfg.hid_bundle_size || 4)
+    : new Set();
+  const renderedBundleStarts = new Set();
 
   section.cabinets.forEach((cab, i) => {
     const row = document.createElement('div');
@@ -725,12 +1376,33 @@ function renderCard(section, cfg, activePalette, cycleLen) {
         input.className = 'ckt-input';
         input.addEventListener('change', e => { cab.ckt = e.target.value; render(); });
         wrap.appendChild(input);
-        const setEntry = circuitSetFillMap[cab._normalCkt !== undefined ? cab._normalCkt : cab.ckt];
+        const bundleKey = cab._normalCkt !== undefined ? cab._normalCkt : cab.ckt;
+        const setEntry = circuitSetFillMap[bundleKey];
         if (setEntry) {
           const setStripe = document.createElement('div');
           setStripe.className = 'circuit-set-stripe';
           if (cfg.ink_friendly_patterns) setStripe.classList.add('ink-pattern-' + setEntry.patternIndex);
           setStripe.style.backgroundColor = argbToCss(setEntry.fill);
+          // Only the first box row of each bundle gets the override control
+          // -- every other row in the same bundle shares the same stripe/
+          // cable # already, so showing it again would just be noise.
+          if (hidBundleStartKeys.has(bundleKey) && !renderedBundleStarts.has(bundleKey)) {
+            renderedBundleStarts.add(bundleKey);
+            setStripe.classList.add('circuit-set-stripe-editable');
+            setStripe.title = `Hi-D cable #${setEntry.cableNumber} -- click to override which cable this bundle is on`;
+            // Always-visible affordance -- a plain color bar gives no hint
+            // it's clickable (a static screenshot can't show a cursor or a
+            // hover-only tooltip), so this small caret sits on the stripe
+            // itself, in every render, not just on hover.
+            const editIcon = document.createElement('span');
+            editIcon.className = 'circuit-set-edit-icon';
+            editIcon.textContent = '▾';
+            setStripe.appendChild(editIcon);
+            setStripe.addEventListener('click', ev => {
+              ev.stopPropagation();
+              openHidCableDropdown(wrap, section, bundleKey, setEntry.cableNumber, cfg.circuit_set_colors);
+            });
+          }
           wrap.appendChild(setStripe);
         }
         // A link icon on the border shared with the box above, when the
@@ -819,6 +1491,7 @@ function renderCard(section, cfg, activePalette, cycleLen) {
   // the column -- skip it entirely instead of rendering "Aim:" with
   // nothing after it, so the column only ever shows fields this section
   // actually has data for.
+  let sawTrimField = false;
   (STATE.metadata_fields || []).forEach(({label, key}) => {
     if (isTagHidden(key, section)) return;
     const val = section.metadata ? section.metadata[key] : undefined;
@@ -830,11 +1503,39 @@ function renderCard(section, cfg, activePalette, cycleLen) {
     l.textContent = label;
     const v = document.createElement('div');
     v.className = 'meta-value';
-    v.textContent = val;
+    // Matches "Trim", "Trim (T)", "Trim (B)", etc. -- whatever this
+    // template's design.xlsx actually calls its trim row(s). Always shows
+    // the computed True Trim; if this hang's burn footage is actually set,
+    // the raw/"Burnt Trim" reading also shows alongside it in red/maroon,
+    // so a burnt reading never gets mistaken for the real distance. On
+    // screen the burn amount itself gets its own "Tape Burn" row below
+    // (editable there); a printed page has no interactive controls, so
+    // that row is dropped and its "+Nft" folds directly into this line
+    // instead, to save vertical space on the page.
+    const isTrim = label.toLowerCase().includes('trim');
+    if (isTrim) {
+      sawTrimField = true;
+      const burnFt = resolveTapeBurnFt(section);
+      const printing = isPrintMode();
+      const trueSpan = document.createElement('span');
+      trueSpan.textContent = trueTrimValue(val, burnFt) + ' ft';
+      v.appendChild(trueSpan);
+      if (burnFt) {
+        v.appendChild(document.createTextNode(' | '));
+        const burntSpan = document.createElement('span');
+        burntSpan.className = 'trim-burnt-value';
+        burntSpan.textContent = printing ? `${val}ft +${burnFt}ft` : `${val}ft \u{1F525}`;
+        burntSpan.title = 'Burnt (raw) reading -- the True Trim above already has this hang\'s burn footage subtracted';
+        v.appendChild(burntSpan);
+      }
+    } else {
+      v.textContent = val;
+    }
     row.appendChild(l); row.appendChild(v);
     row.appendChild(makeTagHideBtn(section, key, label));
     meta.appendChild(row);
   });
+  if (sawTrimField && !isPrintMode()) meta.appendChild(makeTapeBurnRow(section));
   body.appendChild(meta);
 
   content.appendChild(body);
@@ -1056,10 +1757,30 @@ function renameHang(index, newHeader) {
   saveState(false);
 }
 
+// This Date's circuit_color_config starts out seeded from the Show's own
+// default (see app.py's build_job), so any edit made here is already a
+// Date-only override -- this button just makes it easy to undo one without
+// re-entering the whole config by hand.
+function appendResetToShowDefaultButton(panel) {
+  if (!SHOW_META || !SHOW_META.circuit_color_config) return;
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'btn btn-ghost';
+  btn.textContent = 'Reset to show default';
+  btn.title = "Discard this date's own color/numbering tweaks and go back to the show-wide default";
+  btn.addEventListener('click', () => {
+    STATE.circuit_color_config = JSON.parse(JSON.stringify(SHOW_META.circuit_color_config));
+    render();
+    saveState(false);
+  });
+  panel.appendChild(btn);
+}
+
 function renderColorPanel() {
   const panel = document.getElementById('colorPanel');
   const cfg = STATE.circuit_color_config || (STATE.circuit_color_config = {enabled:false, show_row_fill:true, circuit_colors:[], cycle_length:4, hang_colors:[], circuit_set_enabled:false, circuit_set_colors:[], numbering_mode:'normal', hid_bundle_size:4, breakout_cable_name:'Trunk Cable', ink_friendly_patterns:false});
   panel.innerHTML = '';
+  appendResetToShowDefaultButton(panel);
 
   const enabledRow = document.createElement('div');
   enabledRow.className = 'swatchRow';
@@ -1174,6 +1895,7 @@ function renderNumberingPanel() {
   const cfg = STATE.circuit_color_config || (STATE.circuit_color_config = {enabled:false, show_row_fill:true, circuit_colors:[], cycle_length:4, hang_colors:[], circuit_set_enabled:false, circuit_set_colors:[], numbering_mode:'normal', hid_bundle_size:4, breakout_cable_name:'Trunk Cable', ink_friendly_patterns:false});
   const cableName = cfg.breakout_cable_name || 'Trunk Cable';
   panel.innerHTML = '';
+  appendResetToShowDefaultButton(panel);
 
   const intro = document.createElement('div');
   intro.textContent = 'Circuit breakout numbering (which brand of breakout cable this rig uses):';
@@ -1736,8 +2458,9 @@ document.getElementById('pageDesignToggleBtn').addEventListener('click', () => {
 function toggleDataTagsPanel() { toggleSubpanel('dataTagsPanel'); }
 document.getElementById('dataTagsToggleBtn').addEventListener('click', toggleDataTagsPanel);
 document.getElementById('dataTagsToggleBtnVO').addEventListener('click', toggleDataTagsPanel);
-// Click-outside-to-close -- same pattern as the auth popover (see
-// auth.js), but stopping propagation at the panel itself rather than
+// Click-outside-to-close, for every Page Design subpanel (Data Tags,
+// Circuit Numbering, Colors, Data Bar) -- same pattern as the auth popover
+// (see auth.js), but stopping propagation at the panel itself rather than
 // checking panel.contains(e.target) from the document listener: every
 // control inside re-renders the panel (setDateTagOverride/
 // setLocalTagHidden -> render() -> renderDataTagsPanel wipes and rebuilds
@@ -1745,12 +2468,46 @@ document.getElementById('dataTagsToggleBtnVO').addEventListener('click', toggleD
 // the document listener below gets a chance to check it -- contains()
 // on an already-detached node returns false, so the panel was closing
 // itself right after every single click inside it.
-document.getElementById('dataTagsPanel').addEventListener('click', e => e.stopPropagation());
+const PAGE_DESIGN_SUBPANEL_TOGGLE_SELECTORS = {
+  dataTagsPanel: '#dataTagsToggleBtn, #dataTagsToggleBtnVO',
+  numberingPanel: '#numberingToggleBtn',
+  colorPanel: '#colorToggleBtn',
+  dataBarPanel: '#dataBarToggleBtn',
+};
+PAGE_DESIGN_SUBPANEL_IDS.forEach(panelId => {
+  document.getElementById(panelId).addEventListener('click', e => e.stopPropagation());
+});
 document.addEventListener('click', e => {
-  const panel = document.getElementById('dataTagsPanel');
-  if (panel.style.display === 'none') return;
-  if (e.target.closest('#dataTagsToggleBtn, #dataTagsToggleBtnVO')) return;
-  panel.style.display = 'none';
+  PAGE_DESIGN_SUBPANEL_IDS.forEach(panelId => {
+    const panel = document.getElementById(panelId);
+    if (panel.style.display === 'none') return;
+    if (e.target.closest(PAGE_DESIGN_SUBPANEL_TOGGLE_SELECTORS[panelId])) return;
+    panel.style.display = 'none';
+  });
+});
+// Click-outside-to-close for the Hang Define popover -- unlike the fixed
+// sidebar panels above, this popover is rebuilt (a fresh element) inside
+// renderCard on every single edit, so there's no live element to
+// stopPropagation() on. e.target.closest() sidesteps that instead: it
+// walks up from the ORIGINAL click target's own (possibly since-detached)
+// parent chain, which stays intact even after a re-render throws the old
+// popover away, so it still correctly recognizes "this click started
+// inside the popover" regardless of when the detach happened.
+document.addEventListener('click', e => {
+  if (!openHangDefineSection) return;
+  if (e.target.closest('.hang-define-popover, .hang-define-trigger-btn')) return;
+  openHangDefineSection = null;
+  render();
+});
+// Same click-outside-to-close approach for the Hi-D cable dropdown (see
+// openHidCableDropdown) -- it isn't tracked by a module-scoped variable
+// like the popover above since it doesn't need to survive a render() (no
+// field inside it triggers one until an option is actually picked), so
+// this just closes whatever instance happens to be open in the DOM.
+document.addEventListener('click', e => {
+  if (e.target.closest('.hid-cable-dropdown, .circuit-set-stripe-editable')) return;
+  const open = document.querySelector('.hid-cable-dropdown');
+  if (open) open.remove();
 });
 document.getElementById('uploadInput').addEventListener('change', e => {
   const file = e.target.files[0];
@@ -1841,4 +2598,4 @@ initDateSwitcher();
 // render() call catches the (usual) case where it resolves after
 // loadState()'s first render already ran with no Show default applied yet.
 loadShowMeta().then(render);
-loadState();
+loadState().then(() => loadHangProfiles().then(checkHangProfileVersions));
