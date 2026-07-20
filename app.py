@@ -64,6 +64,13 @@ def strip_pair_label(header):
 # Bar mode" rules), same null-means-inherit convention as hidden_tags_overrides.
 DATA_BAR_MODES = {None, 'side-left', 'side-right', 'bottom', 'hidden'}
 
+# How Trim values display -- decimal feet or feet/inches (see
+# api_set_show_trim_units below); inches precision only matters in the
+# feet_inches format, but validated as its own set regardless of which
+# format is active so a stray value can't sneak into storage either way.
+TRIM_UNIT_FORMATS = {'decimal', 'feet_inches'}
+TRIM_INCHES_PRECISIONS = {'whole', 'half', 'quarter'}
+
 # One shared password for the whole tool -- no usernames/accounts, this is
 # a small private crew tool, not a multi-tenant product. Set APP_PASSWORD
 # in the environment for real use (Render/Fly's dashboard, not this file);
@@ -329,6 +336,12 @@ def build_job(sections, source_name, page_header=None, show=None):
         # client-side, passed through verbatim same as
         # hidden_tags_overrides on a section).
         'tape_burn_override_ft': None,
+        # This Date's own Trim display-format override -- same null-cascade
+        # convention as data_bar_mode_override, falling back to the Show's
+        # trim_unit_format/trim_inches_precision when unset. No per-hang
+        # level -- see api_set_show_trim_units.
+        'trim_unit_format_override': None,
+        'trim_inches_precision_override': None,
         # Whether hang headers/titles get their trailing "(Pair)" marker
         # stripped for display/export -- an SE-wide naming convention, so
         # (unlike hidden_tags_overrides) it IS carried forward, same as
@@ -355,6 +368,12 @@ def _apply_incoming(job, data):
     if 'tape_burn_override_ft' in data:
         val = data['tape_burn_override_ft']
         job['tape_burn_override_ft'] = float(val) if isinstance(val, (int, float)) else None
+    if 'trim_unit_format_override' in data:
+        val = data['trim_unit_format_override']
+        job['trim_unit_format_override'] = val if val in TRIM_UNIT_FORMATS else None
+    if 'trim_inches_precision_override' in data:
+        val = data['trim_inches_precision_override']
+        job['trim_inches_precision_override'] = val if val in TRIM_INCHES_PRECISIONS else None
     if 'strip_pair_labels' in data:
         job['strip_pair_labels'] = data['strip_pair_labels']
 
@@ -453,9 +472,17 @@ def api_create_show():
         # raw reading -- a Date, then an individual hang, can each override
         # it (see tape_burn_override_ft on job.json / tape_burn_ft on a
         # section), falling back down to this when neither is set.
+        # trim_unit_format/trim_inches_precision: how Trim values display --
+        # 'decimal' (e.g. "56.89 ft", the default) or 'feet_inches' (e.g.
+        # "56' 11\""), the latter rounded to whole/half/quarter inches per
+        # trim_inches_precision. A Date can override both (see
+        # trim_unit_format_override/trim_inches_precision_override on
+        # job.json) -- no per-hang level, this is a standing SE preference,
+        # not something that varies hang to hang.
         meta = {
             'name': name, 'slug': slug, 'hidden_tags': [], 'data_bar_mode': None,
             'circuit_color_config': None, 'tape_burn_default_ft': 0,
+            'trim_unit_format': 'decimal', 'trim_inches_precision': 'whole',
         }
         show_meta_path(slug).write_text(json.dumps(meta, indent=2), encoding='utf-8')
     return jsonify(meta)
@@ -511,6 +538,23 @@ def api_set_show_tape_burn_default(show_slug):
         if not show:
             return jsonify({'error': 'Show not found.'}), 404
         show['tape_burn_default_ft'] = ft
+        show_meta_path(show_slug).write_text(json.dumps(show, indent=2), encoding='utf-8')
+    return jsonify(show)
+
+
+@app.route('/api/shows/<show_slug>/trim-units', methods=['POST'])
+def api_set_show_trim_units(show_slug):
+    data = request.get_json(force=True, silent=True) or {}
+    unit_format = data.get('trim_unit_format')
+    inches_precision = data.get('trim_inches_precision')
+    if unit_format not in TRIM_UNIT_FORMATS or inches_precision not in TRIM_INCHES_PRECISIONS:
+        return jsonify({'error': 'Invalid trim_unit_format/trim_inches_precision.'}), 400
+    with STATE_LOCK:
+        show = get_show(show_slug)
+        if not show:
+            return jsonify({'error': 'Show not found.'}), 404
+        show['trim_unit_format'] = unit_format
+        show['trim_inches_precision'] = inches_precision
         show_meta_path(show_slug).write_text(json.dumps(show, indent=2), encoding='utf-8')
     return jsonify(show)
 

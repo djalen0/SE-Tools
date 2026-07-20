@@ -105,6 +105,11 @@ let CIRCUIT_COLOR_CONFIG = { ...CIRCUIT_COLOR_CONFIG_DEFAULT };
 // haven't set one).
 let SHOW_TAPE_BURN_DEFAULT_FT = 0;
 
+// How Trim values display -- decimal feet or feet/inches -- also plain
+// per-show fields, same as tape burn above.
+let SHOW_TRIM_UNIT_FORMAT = 'decimal';
+let SHOW_TRIM_INCHES_PRECISION = 'whole';
+
 function loadShowSettings() {
   return Promise.all([
     fetch('/api/design-fields').then(r => r.ok ? r.json() : { metadata_fields: [] }),
@@ -121,6 +126,8 @@ function loadShowSettings() {
     const colorConfig = show.circuit_color_config || globalColorConfig;
     CIRCUIT_COLOR_CONFIG = { ...CIRCUIT_COLOR_CONFIG_DEFAULT, ...colorConfig };
     SHOW_TAPE_BURN_DEFAULT_FT = show.tape_burn_default_ft || 0;
+    SHOW_TRIM_UNIT_FORMAT = show.trim_unit_format === 'feet_inches' ? 'feet_inches' : 'decimal';
+    SHOW_TRIM_INCHES_PRECISION = ['whole', 'half', 'quarter'].includes(show.trim_inches_precision) ? show.trim_inches_precision : 'whole';
   });
 }
 
@@ -136,6 +143,7 @@ const CONFIG_GROUPS = [
   { id: 'colors', label: 'Colors' },
   { id: 'numbering', label: 'Circuit Numbering' },
   { id: 'tapeBurn', label: 'Tape Burn' },
+  { id: 'trimUnits', label: 'Trim Units' },
   { id: 'platformProfiles', label: 'Platform Profiles' },
 ];
 let CONFIG_ACTIVE_GROUP = CONFIG_GROUPS[0].id;
@@ -143,6 +151,8 @@ let CONFIG_DRAFT_HIDDEN_TAGS = [];
 let CONFIG_DRAFT_DATA_BAR_MODE = null;
 let CONFIG_DRAFT_CIRCUIT_COLOR_CONFIG = { ...CIRCUIT_COLOR_CONFIG_DEFAULT };
 let CONFIG_DRAFT_TAPE_BURN_DEFAULT_FT = 0;
+let CONFIG_DRAFT_TRIM_UNIT_FORMAT = 'decimal';
+let CONFIG_DRAFT_TRIM_INCHES_PRECISION = 'whole';
 
 function renderConfigGroups() {
   const list = document.getElementById('configGroupsList');
@@ -166,6 +176,7 @@ function renderConfigOptions() {
   else if (CONFIG_ACTIVE_GROUP === 'colors') renderConfigColorsOptions();
   else if (CONFIG_ACTIVE_GROUP === 'numbering') renderConfigNumberingOptions();
   else if (CONFIG_ACTIVE_GROUP === 'tapeBurn') renderConfigTapeBurnOptions();
+  else if (CONFIG_ACTIVE_GROUP === 'trimUnits') renderConfigTrimUnitsOptions();
   else if (CONFIG_ACTIVE_GROUP === 'platformProfiles') renderConfigPlatformProfilesOptions();
   else renderConfigDataTagsOptions();
 }
@@ -191,6 +202,50 @@ function renderConfigTapeBurnOptions() {
   input.addEventListener('change', e => { CONFIG_DRAFT_TAPE_BURN_DEFAULT_FT = parseFloat(e.target.value) || 0; });
   row.appendChild(input);
   pane.appendChild(row);
+}
+
+// Show-wide default for how Trim values display -- decimal feet or
+// feet/inches -- a Date can override this for itself from the Date page's
+// own Trim units panel; this is just the bottom of that cascade.
+function renderConfigTrimUnitsOptions() {
+  const pane = document.getElementById('configOptionsPane');
+  pane.innerHTML = '';
+  const note = document.createElement('p');
+  note.className = 'panel-note';
+  note.textContent = 'Default Trim display for every date in this show -- an individual date can still override it for itself from the Date page.';
+  pane.appendChild(note);
+
+  [['decimal', 'Decimal feet (e.g. 56.89 ft)'], ['feet_inches', 'Feet & inches (e.g. 56\' 11")']].forEach(([value, label]) => {
+    const row = document.createElement('label');
+    row.className = 'swatchRow';
+    const radio = document.createElement('input');
+    radio.type = 'radio';
+    radio.name = 'configTrimUnitFormat';
+    radio.checked = CONFIG_DRAFT_TRIM_UNIT_FORMAT === value;
+    radio.addEventListener('change', () => { CONFIG_DRAFT_TRIM_UNIT_FORMAT = value; renderConfigTrimUnitsOptions(); });
+    row.appendChild(radio);
+    row.appendChild(document.createTextNode(' ' + label));
+    pane.appendChild(row);
+  });
+
+  if (CONFIG_DRAFT_TRIM_UNIT_FORMAT === 'feet_inches') {
+    const precisionLabel = document.createElement('div');
+    precisionLabel.className = 'panel-label';
+    precisionLabel.textContent = 'Round inches to:';
+    pane.appendChild(precisionLabel);
+    [['whole', 'Whole inch'], ['half', 'Half inch'], ['quarter', 'Quarter inch']].forEach(([value, label]) => {
+      const row = document.createElement('label');
+      row.className = 'swatchRow';
+      const radio = document.createElement('input');
+      radio.type = 'radio';
+      radio.name = 'configTrimInchesPrecision';
+      radio.checked = CONFIG_DRAFT_TRIM_INCHES_PRECISION === value;
+      radio.addEventListener('change', () => { CONFIG_DRAFT_TRIM_INCHES_PRECISION = value; });
+      row.appendChild(radio);
+      row.appendChild(document.createTextNode(' ' + label));
+      pane.appendChild(row);
+    });
+  }
 }
 
 function renderConfigDataTagsOptions() {
@@ -585,6 +640,8 @@ function openConfigModal() {
     CONFIG_DRAFT_DATA_BAR_MODE = SHOW_DATA_BAR_MODE;
     CONFIG_DRAFT_CIRCUIT_COLOR_CONFIG = JSON.parse(JSON.stringify(CIRCUIT_COLOR_CONFIG));
     CONFIG_DRAFT_TAPE_BURN_DEFAULT_FT = SHOW_TAPE_BURN_DEFAULT_FT;
+    CONFIG_DRAFT_TRIM_UNIT_FORMAT = SHOW_TRIM_UNIT_FORMAT;
+    CONFIG_DRAFT_TRIM_INCHES_PRECISION = SHOW_TRIM_INCHES_PRECISION;
     renderConfigGroups();
     renderConfigOptions();
     document.getElementById('configureShowModal').hidden = false;
@@ -617,9 +674,14 @@ function applyConfigChanges() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ tape_burn_default_ft: CONFIG_DRAFT_TAPE_BURN_DEFAULT_FT }),
     }),
-  ]).then(async ([tagsRes, barRes, colorsRes, tapeBurnRes]) => {
-    if (!tagsRes.ok || !barRes.ok || !colorsRes.ok || !tapeBurnRes.ok) {
-      const failed = !tagsRes.ok ? tagsRes : (!barRes.ok ? barRes : (!colorsRes.ok ? colorsRes : tapeBurnRes));
+    fetch('/api/shows/' + encodeURIComponent(SHOW_SLUG) + '/trim-units', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ trim_unit_format: CONFIG_DRAFT_TRIM_UNIT_FORMAT, trim_inches_precision: CONFIG_DRAFT_TRIM_INCHES_PRECISION }),
+    }),
+  ]).then(async ([tagsRes, barRes, colorsRes, tapeBurnRes, trimUnitsRes]) => {
+    if (!tagsRes.ok || !barRes.ok || !colorsRes.ok || !tapeBurnRes.ok || !trimUnitsRes.ok) {
+      const failed = !tagsRes.ok ? tagsRes : (!barRes.ok ? barRes : (!colorsRes.ok ? colorsRes : (!tapeBurnRes.ok ? tapeBurnRes : trimUnitsRes)));
       const body = await failed.json().catch(() => ({}));
       alert(body.error || 'Could not save settings.');
       return false;
@@ -628,6 +690,8 @@ function applyConfigChanges() {
     SHOW_DATA_BAR_MODE = CONFIG_DRAFT_DATA_BAR_MODE;
     CIRCUIT_COLOR_CONFIG = JSON.parse(JSON.stringify(CONFIG_DRAFT_CIRCUIT_COLOR_CONFIG));
     SHOW_TAPE_BURN_DEFAULT_FT = CONFIG_DRAFT_TAPE_BURN_DEFAULT_FT;
+    SHOW_TRIM_UNIT_FORMAT = CONFIG_DRAFT_TRIM_UNIT_FORMAT;
+    SHOW_TRIM_INCHES_PRECISION = CONFIG_DRAFT_TRIM_INCHES_PRECISION;
     return true;
   });
 }

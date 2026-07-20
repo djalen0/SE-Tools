@@ -237,15 +237,51 @@ function resolveTapeBurnFt(section) {
 }
 
 // A tape measure missing its first foot or two reads that many feet long
-// on every measurement -- splits the raw Trim value into its leading
-// number and whatever suffix follows (e.g. "52 ft" -> 52 and " ft"),
-// subtracts the burn, and reattaches the suffix. Falls back to the raw
-// value unchanged if it doesn't start with a number, rather than erroring.
+// on every measurement -- subtracts the burn from a hang's raw (decimal
+// feet) Trim value. Returns a plain number, not a display string -- see
+// formatTrimValue for turning this into what actually shows on screen.
 function trueTrimValue(raw, burnFt) {
-  const m = String(raw).match(/^(-?\d+(?:\.\d+)?)(.*)$/);
-  if (!m) return raw;
-  const num = Math.round((parseFloat(m[1]) - burnFt) * 100) / 100;
-  return num + m[2];
+  const n = typeof raw === 'number' ? raw : parseFloat(raw);
+  return Math.round(((Number.isFinite(n) ? n : 0) - burnFt) * 100) / 100;
+}
+
+// Trim display format -- decimal feet (default) or feet/inches -- a
+// Show-wide default with a per-Date override (no per-hang level, this is a
+// standing SE preference, not something that varies hang to hang). Same
+// null-cascade convention as resolveDataBarMode above.
+const TRIM_UNIT_FORMATS = ['decimal', 'feet_inches'];
+const TRIM_INCHES_PRECISIONS = ['whole', 'half', 'quarter'];
+function resolveTrimUnitFormat() {
+  if (STATE && TRIM_UNIT_FORMATS.includes(STATE.trim_unit_format_override)) return STATE.trim_unit_format_override;
+  if (SHOW_META && TRIM_UNIT_FORMATS.includes(SHOW_META.trim_unit_format)) return SHOW_META.trim_unit_format;
+  return 'decimal';
+}
+function resolveTrimInchesPrecision() {
+  if (STATE && TRIM_INCHES_PRECISIONS.includes(STATE.trim_inches_precision_override)) return STATE.trim_inches_precision_override;
+  if (SHOW_META && TRIM_INCHES_PRECISIONS.includes(SHOW_META.trim_inches_precision)) return SHOW_META.trim_inches_precision;
+  return 'whole';
+}
+
+// Renders a decimal-feet Trim value the way the SE actually wants to read
+// it -- plain decimal ("56.89 ft") or feet/inches ("56' 11\""), the latter
+// rounded to the nearest whole/half/quarter inch (however a tape measure
+// is actually marked/called out on a rig, not a raw decimal fraction).
+function formatTrimValue(decimalFeet, unitFormat, inchesPrecision) {
+  const n = Number.isFinite(decimalFeet) ? decimalFeet : 0;
+  if (unitFormat !== 'feet_inches') {
+    return (Math.round(n * 100) / 100) + ' ft';
+  }
+  const sign = n < 0 ? '-' : '';
+  const absFeet = Math.abs(n);
+  const wholeFeet = Math.floor(absFeet);
+  const denom = inchesPrecision === 'half' ? 2 : inchesPrecision === 'quarter' ? 4 : 1;
+  let roundedInches = Math.round((absFeet - wholeFeet) * 12 * denom) / denom;
+  let feet = wholeFeet;
+  if (roundedInches >= 12) { roundedInches -= 12; feet += 1; }
+  const inchesWhole = Math.floor(roundedInches);
+  const frac = Math.round((roundedInches - inchesWhole) * denom) / denom;
+  const fracStr = frac === 0.5 ? ' 1/2' : frac === 0.25 ? ' 1/4' : frac === 0.75 ? ' 3/4' : '';
+  return `${sign}${feet}' ${inchesWhole}${fracStr}"`;
 }
 
 // One shared "Tape Burn" row per hang, right after its Trim row(s) --
@@ -1165,6 +1201,7 @@ function render() {
   renderNumberingPanel();
   renderDataTagsPanel();
   renderDataBarPanel();
+  renderTrimUnitsPanel();
   renderHangsPanel();
   applyViewOnlyLock();
   window.scrollTo(scrollX, scrollY);
@@ -1292,14 +1329,27 @@ function renderCard(section, cfg, activePalette, cycleLen) {
   metaToggleBtn.setAttribute('aria-label', 'Show hang info');
   metaToggleBtn.addEventListener('click', () => card.classList.toggle('meta-expanded'));
   title.appendChild(metaToggleBtn);
-  title.appendChild(makeHangDefineTrigger(section));
+  // Skipped entirely in print mode, not just hidden via @media print --
+  // the mobile export's page-height measurement (measureMobilePageContentHeightPx)
+  // calls getBoundingClientRect() on these SAME cards on the live document,
+  // where @media print rules don't apply yet (that only kicks in once an
+  // actual print/preview starts). An element that's only hidden via
+  // @media print would still count toward the measured height, computing a
+  // page taller than what the real print output ends up needing -- leaving
+  // it out of the DOM here instead keeps what's measured and what's
+  // printed identical.
+  if (!isPrintMode()) {
+    title.appendChild(makeHangDefineTrigger(section));
+  }
   content.appendChild(title);
   // Expands in place (normal document flow, pushing the box list down)
   // rather than floating over the card -- same convention as the
   // meta-expanded accordion reveal above, and avoids fighting .card's own
   // overflow:hidden (used to clip the rounded corners/hang stripe) that a
-  // floating popover would need to escape.
-  if (openHangDefineSection === section) content.appendChild(renderHangDefinePopover(section));
+  // floating popover would need to escape. Excluded from print for the
+  // same measurement-vs-print-CSS reason as the trigger button above --
+  // also just makes no sense on paper even if it happened to be open.
+  if (openHangDefineSection === section && !isPrintMode()) content.appendChild(renderHangDefinePopover(section));
 
   const body = document.createElement('div');
   body.className = 'card-body';
@@ -1393,11 +1443,14 @@ function renderCard(section, cfg, activePalette, cycleLen) {
             // Always-visible affordance -- a plain color bar gives no hint
             // it's clickable (a static screenshot can't show a cursor or a
             // hover-only tooltip), so this small caret sits on the stripe
-            // itself, in every render, not just on hover.
-            const editIcon = document.createElement('span');
-            editIcon.className = 'circuit-set-edit-icon';
-            editIcon.textContent = '▾';
-            setStripe.appendChild(editIcon);
+            // itself, in every render, not just on hover. Skipped on paper
+            // -- "click here" means nothing on a printed page.
+            if (!isPrintMode()) {
+              const editIcon = document.createElement('span');
+              editIcon.className = 'circuit-set-edit-icon';
+              editIcon.textContent = '▾';
+              setStripe.appendChild(editIcon);
+            }
             setStripe.addEventListener('click', ev => {
               ev.stopPropagation();
               openHidCableDropdown(wrap, section, bundleKey, setEntry.cableNumber, cfg.circuit_set_colors);
@@ -1516,15 +1569,19 @@ function renderCard(section, cfg, activePalette, cycleLen) {
     if (isTrim) {
       sawTrimField = true;
       const burnFt = resolveTapeBurnFt(section);
+      const unitFormat = resolveTrimUnitFormat();
+      const inchesPrecision = resolveTrimInchesPrecision();
       const printing = isPrintMode();
+      const rawVal = typeof val === 'number' ? val : parseFloat(val);
       const trueSpan = document.createElement('span');
-      trueSpan.textContent = trueTrimValue(val, burnFt) + ' ft';
+      trueSpan.textContent = formatTrimValue(trueTrimValue(rawVal, burnFt), unitFormat, inchesPrecision);
       v.appendChild(trueSpan);
       if (burnFt) {
         v.appendChild(document.createTextNode(' | '));
         const burntSpan = document.createElement('span');
         burntSpan.className = 'trim-burnt-value';
-        burntSpan.textContent = printing ? `${val}ft +${burnFt}ft` : `${val}ft \u{1F525}`;
+        const burntFormatted = formatTrimValue(rawVal, unitFormat, inchesPrecision);
+        burntSpan.textContent = printing ? `${burntFormatted} +${burnFt}ft` : `${burntFormatted} \u{1F525}`;
         burntSpan.title = 'Burnt (raw) reading -- the True Trim above already has this hang\'s burn footage subtracted';
         v.appendChild(burntSpan);
       }
@@ -1687,6 +1744,70 @@ function renderDataBarPanel() {
     row.appendChild(document.createTextNode(' ' + label));
     panel.appendChild(row);
   });
+}
+
+// This Date's own Trim display-format override, on top of the Show's
+// standing default (set from the Show page -- see static/show.js).
+// "Default" clears the override, falling back to the Show default (then
+// plain decimal feet if the Show hasn't set one either). No per-hang
+// level for this -- see resolveTrimUnitFormat.
+function renderTrimUnitsPanel() {
+  const panel = document.getElementById('trimUnitsPanel');
+  panel.innerHTML = '';
+  const note = document.createElement('p');
+  note.className = 'panel-note';
+  const showFormat = SHOW_META && SHOW_META.trim_unit_format === 'feet_inches' ? 'feet & inches' : 'decimal feet';
+  note.textContent = `Overrides the show-wide default (currently ${showFormat}) for this date only. Set the show-wide default from the show page.`;
+  panel.appendChild(note);
+
+  const currentFormat = STATE && TRIM_UNIT_FORMATS.includes(STATE.trim_unit_format_override) ? STATE.trim_unit_format_override : null;
+  [[null, 'Default'], ['decimal', 'Decimal feet'], ['feet_inches', 'Feet & inches']].forEach(([value, label]) => {
+    const row = document.createElement('label');
+    row.className = 'swatchRow';
+    const radio = document.createElement('input');
+    radio.type = 'radio';
+    radio.name = 'trimUnitFormat';
+    radio.checked = currentFormat === value;
+    radio.addEventListener('change', () => setTrimUnitFormatOverride(value));
+    row.appendChild(radio);
+    row.appendChild(document.createTextNode(' ' + label));
+    panel.appendChild(row);
+  });
+
+  // Only relevant once the EFFECTIVE format (this Date's override, else
+  // the Show default) actually resolves to feet_inches -- no point asking
+  // "round inches to what?" while decimal feet is what's showing.
+  if (resolveTrimUnitFormat() === 'feet_inches') {
+    const precisionLabel = document.createElement('div');
+    precisionLabel.className = 'panel-label';
+    precisionLabel.textContent = 'Round inches to:';
+    panel.appendChild(precisionLabel);
+    const currentPrecision = STATE && TRIM_INCHES_PRECISIONS.includes(STATE.trim_inches_precision_override) ? STATE.trim_inches_precision_override : null;
+    [[null, 'Default'], ['whole', 'Whole inch'], ['half', 'Half inch'], ['quarter', 'Quarter inch']].forEach(([value, label]) => {
+      const row = document.createElement('label');
+      row.className = 'swatchRow';
+      const radio = document.createElement('input');
+      radio.type = 'radio';
+      radio.name = 'trimInchesPrecision';
+      radio.checked = currentPrecision === value;
+      radio.addEventListener('change', () => setTrimInchesPrecisionOverride(value));
+      row.appendChild(radio);
+      row.appendChild(document.createTextNode(' ' + label));
+      panel.appendChild(row);
+    });
+  }
+}
+
+function setTrimUnitFormatOverride(value) {
+  STATE.trim_unit_format_override = value;
+  render();
+  saveState(false);
+}
+
+function setTrimInchesPrecisionOverride(value) {
+  STATE.trim_inches_precision_override = value;
+  render();
+  saveState(false);
 }
 
 // Renaming/reordering both act on STATE.sections directly -- header text
@@ -2184,6 +2305,17 @@ function runPrint(modeClass, pageCss, gridColumns, fitPage) {
   // the mobile layout should force 1 column even from a wide one.
   grid.style.gridTemplateColumns = typeof gridColumns === 'function' ? gridColumns() : gridColumns;
   setPrintPageStyle(typeof pageCss === 'function' ? pageCss() : pageCss);
+  // Forces the browser to actually resolve the new @page rule into its
+  // CSSOM synchronously, right now -- same "don't trust an async gap that
+  // doesn't exist" precaution fitContentToPage already takes for zoom (see
+  // its own comment below), just applied to the stylesheet mutation above
+  // instead of a layout one. Belt-and-suspenders: setting textContent on
+  // an inline <style> is spec'd to apply synchronously with no real gap,
+  // but this project's print exports have repeatedly hit Chrome quirks
+  // that didn't show up until tested for real (see the print-export
+  // debugging notes) -- cheap enough to keep even if it turns out not to
+  // be the missing piece.
+  void document.getElementById('printPageStyle').sheet;
   if (fitPage) fitContentToPage(fitPage.widthIn, fitPage.heightIn, fitPage.marginMm);
   // Chrome's "Save as PDF" print destination uses document.title as the
   // suggested filename -- there's no other hook into that dialog from a
@@ -2424,7 +2556,7 @@ document.getElementById('printMobileBtnVO').addEventListener('click', exportPrin
 // style.css) rather than flying out, so it's untouched by any of this.
 // Mobile keeps the old expand-in-place behavior for every panel, where
 // several open at once is harmless, so all of this is a no-op there.
-const PAGE_DESIGN_SUBPANEL_IDS = ['dataTagsPanel', 'numberingPanel', 'colorPanel', 'dataBarPanel'];
+const PAGE_DESIGN_SUBPANEL_IDS = ['dataTagsPanel', 'numberingPanel', 'colorPanel', 'dataBarPanel', 'trimUnitsPanel'];
 function toggleSubpanel(panelId) {
   const p = document.getElementById(panelId);
   const opening = p.style.display === 'none';
@@ -2436,6 +2568,7 @@ function toggleSubpanel(panelId) {
 document.getElementById('colorToggleBtn').addEventListener('click', () => toggleSubpanel('colorPanel'));
 document.getElementById('numberingToggleBtn').addEventListener('click', () => toggleSubpanel('numberingPanel'));
 document.getElementById('dataBarToggleBtn').addEventListener('click', () => toggleSubpanel('dataBarPanel'));
+document.getElementById('trimUnitsToggleBtn').addEventListener('click', () => toggleSubpanel('trimUnitsPanel'));
 document.getElementById('hangsToggleBtn').addEventListener('click', () => {
   const p = document.getElementById('hangsPanel');
   p.style.display = p.style.display === 'none' ? 'block' : 'none';
@@ -2473,6 +2606,7 @@ const PAGE_DESIGN_SUBPANEL_TOGGLE_SELECTORS = {
   numberingPanel: '#numberingToggleBtn',
   colorPanel: '#colorToggleBtn',
   dataBarPanel: '#dataBarToggleBtn',
+  trimUnitsPanel: '#trimUnitsToggleBtn',
 };
 PAGE_DESIGN_SUBPANEL_IDS.forEach(panelId => {
   document.getElementById(panelId).addEventListener('click', e => e.stopPropagation());
