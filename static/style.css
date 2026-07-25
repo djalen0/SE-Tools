@@ -630,10 +630,10 @@ input[type=text], input[type=number] {
      (same color) paint as one unbroken column instead of a stack of
      visibly separate segments. */
 }
-/* Only the first box row of each Hi-D bundle gets this -- see renderCard's
-   hidBundleStartKeys. Clicking opens the Hi-D cable dropdown (see
-   openHidCableDropdown) to override which physical cable # this bundle is
-   actually on. */
+/* Every box row in a Hi-D bundle gets this now, not just its first row --
+   see renderCard's openTrunkStripeMenu call. Clicking the bundle's own
+   first row opens the Cable # picker; clicking any other row in the
+   bundle offers to split a new trunk cable off right there instead. */
 .circuit-set-stripe-editable { cursor: pointer; }
 /* Always-visible caret so a plain color bar reads as clickable even in a
    static screenshot, not just on hover -- see the editIcon comment in
@@ -644,8 +644,8 @@ input[type=text], input[type=number] {
   font-size: 12px; font-weight: 900; line-height: 1; color: #fff; pointer-events: none;
   text-shadow: 0 0 2px #000, 0 0 2px #000, 0 1px 1px #000;
 }
-/* Cable-# / color picker opened by clicking the stripe -- see
-   openHidCableDropdown in app.js. Anchored to .ckt-wrap (position:
+/* Cable #/split menu opened by clicking the stripe -- see
+   openTrunkStripeMenu in app.js. Anchored to .ckt-wrap (position:
    relative), which already hosts the stripe itself. */
 .hid-cable-dropdown {
   position: absolute; left: -26px; top: 100%; z-index: 20;

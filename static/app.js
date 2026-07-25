@@ -454,20 +454,45 @@ function assignCircuitColors(cabinets, palette) {
   return map;
 }
 
-// Distinct (pre-Hi-D) circuit numbers, in first-seen order, chunked into
-// bundles of `cycleLength` -- the same grouping assignCircuitSetColors and
-// getHidBundleStartKeys both need, factored out so they can't drift apart.
-function hidBundleOrder(cabinets, cycleLength) {
+// Splits an ordered list of distinct circuit labels into bundles of
+// `cycleLength`, except a label in `manualBreaks` always starts a fresh
+// bundle even mid-cycle -- lets a hang whose amp-rack feed splits into a
+// new physical trunk cable at a box count that ISN'T a multiple of the
+// bundle size (e.g. 6 boxes on one trunk, not 4, because the rest of the
+// rack is immutable) express that, instead of being stuck with the fixed
+// idx % cycleLength grouping. Shared by hidBundleOrder (below) and
+// applyHiDNumbering, which each build their own `order` array first (they
+// disagree on whether a blank circuit consumes a slot, so the chunking
+// itself is factored out rather than the order-building).
+function chunkIntoBundles(order, cycleLength, manualBreaks) {
   const cl = Math.max(1, cycleLength || 1);
+  const breaks = manualBreaks || new Set();
+  const bundles = [];
+  let current = [];
+  order.forEach(label => {
+    if (current.length && (current.length >= cl || breaks.has(label))) {
+      bundles.push(current);
+      current = [];
+    }
+    current.push(label);
+  });
+  if (current.length) bundles.push(current);
+  return bundles;
+}
+
+// Distinct (pre-Hi-D) circuit numbers, in first-seen order, chunked into
+// bundles of `cycleLength` (see chunkIntoBundles for the manualBreaks
+// early-split behavior) -- the same grouping assignCircuitSetColors,
+// getStartBreakout/setStartBreakout, and renderCard's bundleOwnerKey map
+// all need, factored out so they can't drift apart.
+function hidBundleOrder(cabinets, cycleLength, manualBreaks) {
   const seen = new Set();
   const order = [];
   cabinets.forEach(cab => {
     const ckt = cab._normalCkt !== undefined ? cab._normalCkt : cab.ckt;
     if (!seen.has(ckt)) { seen.add(ckt); order.push(ckt); }
   });
-  const bundles = [];
-  for (let i = 0; i < order.length; i += cl) bundles.push(order.slice(i, i + cl));
-  return bundles;
+  return chunkIntoBundles(order, cycleLength, manualBreaks);
 }
 
 // Copies a Hang Profile's whole field set onto one section and links it
@@ -591,7 +616,7 @@ function showNextHangProfileMismatch(queue) {
 // really plugged into. Every later un-overridden bundle then keeps
 // counting up FROM that override, not from 1, so overriding just the
 // first bundle is enough to shift a whole truncated hang's coloring.
-function assignCircuitSetColors(cabinets, palette, cycleLength, overrides) {
+function assignCircuitSetColors(cabinets, palette, cycleLength, overrides, manualBreaks) {
   const assignment = {};
   if (!palette || !palette.length) return assignment;
   const ov = overrides || {};
@@ -606,7 +631,7 @@ function assignCircuitSetColors(cabinets, palette, cycleLength, overrides) {
   // cab._normalCkt is the stable, never-repeating original circuit number,
   // so it's the right identity to window into breakout-sized groups
   // regardless of which numbering mode is currently displayed.
-  hidBundleOrder(cabinets, cycleLength).forEach(bundle => {
+  hidBundleOrder(cabinets, cycleLength, manualBreaks).forEach(bundle => {
     const bundleKey = bundle[0];
     const override = ov[bundleKey];
     current = (override !== undefined && override !== null && override !== '' && Number(override) > 0)
@@ -617,13 +642,6 @@ function assignCircuitSetColors(cabinets, palette, cycleLength, overrides) {
     bundle.forEach(ckt => { assignment[ckt] = { fill, patternIndex, cableNumber: current }; });
   });
   return assignment;
-}
-
-// Which distinct circuit # values start a new Hi-D bundle -- used to place
-// the "Cable #" override control on only the first box row of each bundle,
-// not every row in it.
-function getHidBundleStartKeys(cabinets, cycleLength) {
-  return new Set(hidBundleOrder(cabinets, cycleLength).map(bundle => bundle[0]));
 }
 
 // "Start on Breakout #" (Hang Define popover) is just a friendlier way to
@@ -642,19 +660,70 @@ function setStartBreakout(section, n) {
   section.hid_cable_overrides = (n > 1 && bundles.length) ? { [bundles[0][0]]: n } : {};
 }
 
-// A dropdown of "Cable N" options, each with a swatch of that cable's
-// actual palette color, anchored to the stripe that was clicked -- lets
-// the SE pick the cable they're really plugged into by its color, rather
-// than typing a bare number and having to remember number-to-color
-// mapping themselves. Offers two full cycles of the palette (or the
-// current value plus a few, whichever is larger) -- generous for any
-// realistically-sized rig without an unreasonably long list.
-function openHidCableDropdown(anchor, section, bundleKey, currentNumber, palette) {
+// The menu opened by clicking any box's circuit-set-stripe chevron.
+// `rowKey` is the identity of the box actually clicked; `ownerKey` is that
+// bundle's first key (the identity hid_cable_overrides/manual breaks are
+// actually keyed by -- see bundleOwnerKey in renderCard). Two shapes:
+//  - Clicked the bundle's own first box (isOwnerRow): the usual "Cable N"
+//    picker (a swatch of each cable's actual palette color, so the SE can
+//    pick the cable they're really plugged into by its color rather than
+//    a bare number), plus -- only if this box's bundle exists because of a
+//    manual split rather than the fixed bundle-size grid -- an option to
+//    undo that split.
+//  - Clicked any other box in the bundle: a single "start a new trunk
+//    cable here" option, forcing an early bundle boundary right at that
+//    box even mid-way through the fixed cycle (see chunkIntoBundles) --
+//    covers an immutable amp-rack feed that splits a hang's boxes across
+//    trunks/circuits at a count that isn't a multiple of "Circuits per
+//    breakout cable".
+function openTrunkStripeMenu(anchor, section, cfg, rowKey, ownerKey, isOwnerRow, currentNumber) {
   const existing = anchor.querySelector('.hid-cable-dropdown');
   if (existing) { existing.remove(); return; }
-  const pal = palette && palette.length ? palette : ['FFCCCCCC'];
+  const cableName = cfg.breakout_cable_name || 'Trunk Cable';
   const dropdown = document.createElement('div');
   dropdown.className = 'hid-cable-dropdown';
+
+  const rerunNumbering = () => {
+    if (cfg.numbering_mode === 'hid') applyHiDNumbering([section], cfg.hid_bundle_size || 4);
+  };
+
+  if (!isOwnerRow) {
+    const opt = document.createElement('div');
+    opt.className = 'hid-cable-dropdown-option';
+    opt.textContent = `Start new ${cableName} here`;
+    opt.addEventListener('click', e => {
+      e.stopPropagation();
+      const breaks = new Set(section.hid_manual_breaks || []);
+      breaks.add(rowKey);
+      section.hid_manual_breaks = Array.from(breaks);
+      rerunNumbering();
+      render();
+      saveState(false);
+    });
+    dropdown.appendChild(opt);
+    anchor.appendChild(dropdown);
+    return;
+  }
+
+  if ((section.hid_manual_breaks || []).includes(ownerKey)) {
+    const undoOpt = document.createElement('div');
+    undoOpt.className = 'hid-cable-dropdown-option';
+    undoOpt.textContent = 'Undo split (merge with previous)';
+    undoOpt.addEventListener('click', e => {
+      e.stopPropagation();
+      const breaks = new Set(section.hid_manual_breaks || []);
+      breaks.delete(ownerKey);
+      section.hid_manual_breaks = Array.from(breaks);
+      rerunNumbering();
+      render();
+      saveState(false);
+    });
+    dropdown.appendChild(undoOpt);
+    dropdown.appendChild(document.createElement('hr'));
+  }
+
+  const palette = cfg.circuit_set_colors;
+  const pal = palette && palette.length ? palette : ['FFCCCCCC'];
   const optionCount = Math.max(pal.length * 2, currentNumber + 4);
   for (let n = 1; n <= optionCount; n++) {
     const opt = document.createElement('div');
@@ -667,8 +736,8 @@ function openHidCableDropdown(anchor, section, bundleKey, currentNumber, palette
     opt.addEventListener('click', e => {
       e.stopPropagation();
       section.hid_cable_overrides = section.hid_cable_overrides || {};
-      if (n > 0) section.hid_cable_overrides[bundleKey] = n;
-      else delete section.hid_cable_overrides[bundleKey];
+      if (n > 0) section.hid_cable_overrides[ownerKey] = n;
+      else delete section.hid_cable_overrides[ownerKey];
       render();
       saveState(false);
     });
@@ -702,7 +771,7 @@ async function updateLinkedProfile(section, profile) {
   if (!confirm(`Update profile "${profile.name}" with this hang's current settings? Every other hang linked to it will be asked to update the next time its page loads.`)) return;
   const body = {
     start_breakout: getStartBreakout(section),
-    hid_reverse_order: section.hid_reverse_order !== false,
+    hid_reverse_order: resolveHidReverseOrder(section),
     tape_burn_ft: resolveTapeBurnFt(section),
     apply_manual_circuiting: !!section.apply_manual_circuiting,
     manual_circuit_pattern: section.manual_circuit_pattern || [],
@@ -744,7 +813,7 @@ function renderSaveHangProfileForm(pane, addBtn, section) {
     const body = {
       name,
       start_breakout: getStartBreakout(section),
-      hid_reverse_order: section.hid_reverse_order !== false,
+      hid_reverse_order: resolveHidReverseOrder(section),
       tape_burn_ft: resolveTapeBurnFt(section),
       apply_manual_circuiting: !!section.apply_manual_circuiting,
       manual_circuit_pattern: section.manual_circuit_pattern || [],
@@ -867,11 +936,38 @@ function renderHangDefinePopover(section) {
   breakoutRow.appendChild(breakoutInput);
   pop.appendChild(breakoutRow);
 
+  // Mid-hang trunk splits (added via each box's circuit-set-stripe chevron
+  // menu, see openTrunkStripeMenu) don't have any other visible home in
+  // this popover -- "Start on Breakout #" above only covers the hang's
+  // very first bundle, this covers every later one that got forced off
+  // the fixed bundle-size grid.
+  if ((section.hid_manual_breaks || []).length) {
+    const splitsRow = document.createElement('div');
+    splitsRow.className = 'hang-define-row';
+    const count = section.hid_manual_breaks.length;
+    splitsRow.appendChild(document.createTextNode(
+      `${count} mid-hang trunk split${count === 1 ? '' : 's'} set`
+    ));
+    const clearBtn = document.createElement('button');
+    clearBtn.type = 'button';
+    clearBtn.textContent = 'Clear';
+    clearBtn.addEventListener('click', () => {
+      section.hid_manual_breaks = [];
+      if (STATE.circuit_color_config && STATE.circuit_color_config.numbering_mode === 'hid') {
+        applyHiDNumbering([section], STATE.circuit_color_config.hid_bundle_size || 4);
+      }
+      render();
+      saveState(false);
+    });
+    splitsRow.appendChild(clearBtn);
+    pop.appendChild(splitsRow);
+  }
+
   const reverseRow = document.createElement('label');
   reverseRow.className = 'hang-define-row';
   const reverseCb = document.createElement('input');
   reverseCb.type = 'checkbox';
-  reverseCb.checked = section.hid_reverse_order !== false;
+  reverseCb.checked = resolveHidReverseOrder(section);
   reverseCb.addEventListener('change', e => {
     section.hid_reverse_order = e.target.checked;
     // Re-derive this hang's Hi-D leg numbers immediately -- otherwise the
@@ -884,7 +980,7 @@ function renderHangDefinePopover(section) {
     saveState(false);
   });
   reverseRow.appendChild(reverseCb);
-  reverseRow.appendChild(document.createTextNode(' Hi-D Reverse Order (4,3,2,1)'));
+  reverseRow.appendChild(document.createTextNode(' Descending (4,3,2,1) -- overrides the show default'));
   pop.appendChild(reverseRow);
 
   const burnRow = document.createElement('div');
@@ -1015,15 +1111,27 @@ function renderHangDefinePopover(section) {
 // (captured once, the first time a section is converted) so "back to
 // Normal" can restore the original numbers exactly, since the Hi-D labels
 // themselves don't carry enough information to reconstruct them.
-// Legs count DOWN (4,3,2,1) by default -- some hangs (via a linked Hang
-// Profile, see applyHangProfileToSection) instead want them counting UP
-// (1,2,3,4), toggled per-section by section.hid_reverse_order === false.
+// Whether a hang's breakout legs count DOWN (4,3,2,1) or UP (1,2,3,4).
+// section.hid_reverse_order is explicit true/false once the SE has
+// touched the checkbox in that hang's Define popover (or applied a Hang
+// Profile, which always carries an explicit value) -- left undefined
+// otherwise, which falls through to the show-wide default set in the
+// Circuit Numbering panel (cfg.hid_reverse_order_default, itself
+// defaulting to descending so upgrading this app doesn't silently flip
+// numbers on an already-configured show).
+function resolveHidReverseOrder(section) {
+  if (typeof section.hid_reverse_order === 'boolean') return section.hid_reverse_order;
+  const cfg = STATE.circuit_color_config;
+  return !(cfg && cfg.hid_reverse_order_default === false);
+}
+
 function applyHiDNumbering(sections, bundleSize) {
   const bs = Math.max(1, bundleSize || 4);
   (sections || []).forEach(section => {
     const cabinets = section.cabinets || [];
     cabinets.forEach(c => { if (c._normalCkt === undefined) c._normalCkt = c.ckt; });
-    const reverse = section.hid_reverse_order !== false;
+    const reverse = resolveHidReverseOrder(section);
+    const manualBreaks = new Set(section.hid_manual_breaks || []);
 
     const distinctOrder = [];
     const seen = new Set();
@@ -1033,9 +1141,10 @@ function applyHiDNumbering(sections, bundleSize) {
     });
 
     const mapping = {};
-    distinctOrder.forEach((label, idx) => {
-      const posInBundle = idx % bs;
-      mapping[label] = String(reverse ? bs - posInBundle : posInBundle + 1);
+    chunkIntoBundles(distinctOrder, bs, manualBreaks).forEach(bundle => {
+      bundle.forEach((label, posInBundle) => {
+        mapping[label] = String(reverse ? bs - posInBundle : posInBundle + 1);
+      });
     });
 
     cabinets.forEach(c => {
@@ -1378,13 +1487,21 @@ function renderCard(section, cfg, activePalette, cycleLen) {
   // a panel now, but the stripe's grouping should match the actual
   // breakout cable size the user configured, not how many paint colors
   // are in the row-fill palette.
+  const manualBreaksSet = new Set(section.hid_manual_breaks || []);
   const circuitSetFillMap = cfg.circuit_set_enabled
-    ? assignCircuitSetColors(section.cabinets, cfg.circuit_set_colors, cfg.hid_bundle_size || 4, section.hid_cable_overrides)
+    ? assignCircuitSetColors(section.cabinets, cfg.circuit_set_colors, cfg.hid_bundle_size || 4, section.hid_cable_overrides, manualBreaksSet)
     : {};
-  const hidBundleStartKeys = cfg.circuit_set_enabled
-    ? getHidBundleStartKeys(section.cabinets, cfg.hid_bundle_size || 4)
-    : new Set();
-  const renderedBundleStarts = new Set();
+  // Every bundle member's key -> that bundle's own first key (the identity
+  // hid_cable_overrides/assignCircuitSetColors actually key off of) -- so
+  // clicking the stripe on ANY row of a bundle, not just its first row,
+  // can still target the right override entry. See renderCard's stripe
+  // click handler below.
+  const bundleOwnerKey = {};
+  if (cfg.circuit_set_enabled) {
+    hidBundleOrder(section.cabinets, cfg.hid_bundle_size || 4, manualBreaksSet).forEach(bundle => {
+      bundle.forEach(k => { bundleOwnerKey[k] = bundle[0]; });
+    });
+  }
 
   section.cabinets.forEach((cab, i) => {
     const row = document.createElement('div');
@@ -1430,32 +1547,36 @@ function renderCard(section, cfg, activePalette, cycleLen) {
         const setEntry = circuitSetFillMap[bundleKey];
         if (setEntry) {
           const setStripe = document.createElement('div');
-          setStripe.className = 'circuit-set-stripe';
+          setStripe.className = 'circuit-set-stripe circuit-set-stripe-editable';
           if (cfg.ink_friendly_patterns) setStripe.classList.add('ink-pattern-' + setEntry.patternIndex);
           setStripe.style.backgroundColor = argbToCss(setEntry.fill);
-          // Only the first box row of each bundle gets the override control
-          // -- every other row in the same bundle shares the same stripe/
-          // cable # already, so showing it again would just be noise.
-          if (hidBundleStartKeys.has(bundleKey) && !renderedBundleStarts.has(bundleKey)) {
-            renderedBundleStarts.add(bundleKey);
-            setStripe.classList.add('circuit-set-stripe-editable');
-            setStripe.title = `Hi-D cable #${setEntry.cableNumber} -- click to override which cable this bundle is on`;
-            // Always-visible affordance -- a plain color bar gives no hint
-            // it's clickable (a static screenshot can't show a cursor or a
-            // hover-only tooltip), so this small caret sits on the stripe
-            // itself, in every render, not just on hover. Skipped on paper
-            // -- "click here" means nothing on a printed page.
-            if (!isPrintMode()) {
-              const editIcon = document.createElement('span');
-              editIcon.className = 'circuit-set-edit-icon';
-              editIcon.textContent = '▾';
-              setStripe.appendChild(editIcon);
-            }
-            setStripe.addEventListener('click', ev => {
-              ev.stopPropagation();
-              openHidCableDropdown(wrap, section, bundleKey, setEntry.cableNumber, cfg.circuit_set_colors);
-            });
+          // Every row of the bundle gets the same clickable chevron now
+          // (not just its first row) -- clicking it on the bundle's own
+          // first row opens the usual "which cable is this" picker;
+          // clicking it anywhere else in the bundle offers to split a new
+          // trunk cable off right there instead. One control, reused for
+          // both jobs, rather than a second icon competing for space on
+          // every row.
+          const isOwnerRow = bundleOwnerKey[bundleKey] === bundleKey;
+          const cableName = cfg.breakout_cable_name || 'Trunk Cable';
+          setStripe.title = isOwnerRow
+            ? `${cableName} #${setEntry.cableNumber} -- click to change cable or split`
+            : `Part of ${cableName} #${setEntry.cableNumber} -- click to start a new one here`;
+          // Always-visible affordance -- a plain color bar gives no hint
+          // it's clickable (a static screenshot can't show a cursor or a
+          // hover-only tooltip), so this small caret sits on the stripe
+          // itself, in every render, not just on hover. Skipped on paper
+          // -- "click here" means nothing on a printed page.
+          if (!isPrintMode()) {
+            const editIcon = document.createElement('span');
+            editIcon.className = 'circuit-set-edit-icon';
+            editIcon.textContent = '▾';
+            setStripe.appendChild(editIcon);
           }
+          setStripe.addEventListener('click', ev => {
+            ev.stopPropagation();
+            openTrunkStripeMenu(wrap, section, cfg, bundleKey, bundleOwnerKey[bundleKey], isOwnerRow, setEntry.cableNumber);
+          });
           wrap.appendChild(setStripe);
         }
         // A link icon on the border shared with the box above, when the
@@ -2041,14 +2162,42 @@ function renderNumberingPanel() {
   nameRow.appendChild(nameInput);
   panel.appendChild(nameRow);
 
+  // Which label the CKT column shows, as a plain choice rather than a
+  // "Convert to X" / "Convert back to normal" toggle button whose own
+  // label kept changing depending on the current state -- that read as an
+  // action to take, not a setting to look at, and was confusing to tell
+  // apart from the leg-order select right below it. A <select> just shows
+  // the current choice plumbing, always.
   const numberingModeRow = document.createElement('div');
   numberingModeRow.className = 'swatchRow';
-  numberingModeRow.appendChild(document.createTextNode('Current numbering:'));
-  const modeText = document.createElement('strong');
-  modeText.textContent = cfg.numbering_mode === 'hid' ? cableName : 'normal';
-  numberingModeRow.appendChild(modeText);
+  numberingModeRow.appendChild(document.createTextNode('Label CKT as:'));
+  const modeSelect = document.createElement('select');
+  const actualOpt = document.createElement('option');
+  actualOpt.value = 'normal';
+  actualOpt.textContent = 'Actual circuit number';
+  const breakoutOpt = document.createElement('option');
+  breakoutOpt.value = 'hid';
+  breakoutOpt.textContent = `${cableName} #`;
+  modeSelect.appendChild(actualOpt);
+  modeSelect.appendChild(breakoutOpt);
+  modeSelect.value = cfg.numbering_mode === 'hid' ? 'hid' : 'normal';
+  modeSelect.addEventListener('change', e => {
+    if (e.target.value === 'hid') {
+      applyHiDNumbering(STATE.sections, cfg.hid_bundle_size || 4);
+    } else {
+      restoreNormalNumbering(STATE.sections);
+    }
+    cfg.numbering_mode = e.target.value;
+    render();
+    saveState(false);
+  });
+  numberingModeRow.appendChild(modeSelect);
   panel.appendChild(numberingModeRow);
 
+  // Shared by both "Label CKT as" modes -- the breakout stripe below
+  // groups circuits into sets of this size for its own coloring even when
+  // CKT itself is showing the actual circuit number, not just when it's
+  // showing the breakout #, so this stays visible either way.
   const bundleRow = document.createElement('div');
   bundleRow.className = 'swatchRow';
   bundleRow.appendChild(document.createTextNode('Circuits per breakout cable:'));
@@ -2056,24 +2205,51 @@ function renderNumberingPanel() {
   bundleInput.type = 'number';
   bundleInput.min = 1;
   bundleInput.value = cfg.hid_bundle_size || 4;
-  bundleInput.addEventListener('change', e => { cfg.hid_bundle_size = parseInt(e.target.value) || 4; saveState(false); });
-  bundleRow.appendChild(bundleInput);
-  panel.appendChild(bundleRow);
-
-  const convertBtn = document.createElement('button');
-  const goingToHiD = cfg.numbering_mode !== 'hid';
-  convertBtn.textContent = goingToHiD ? `Convert to ${cableName} numbering` : 'Convert back to normal numbering';
-  convertBtn.addEventListener('click', () => {
-    if (goingToHiD) {
-      applyHiDNumbering(STATE.sections, cfg.hid_bundle_size || 4);
-    } else {
-      restoreNormalNumbering(STATE.sections);
-    }
-    cfg.numbering_mode = goingToHiD ? 'hid' : 'normal';
+  bundleInput.addEventListener('change', e => {
+    cfg.hid_bundle_size = parseInt(e.target.value) || 4;
+    if (cfg.numbering_mode === 'hid') applyHiDNumbering(STATE.sections, cfg.hid_bundle_size);
     render();
     saveState(false);
   });
-  panel.appendChild(convertBtn);
+  bundleRow.appendChild(bundleInput);
+  panel.appendChild(bundleRow);
+
+  // Leg order only means anything once boxes are actually being labeled
+  // by breakout #, so it's hidden the rest of the time instead of sitting
+  // there looking like it applies regardless.
+  if (cfg.numbering_mode === 'hid') {
+    // Show-wide default for which way each breakout cable's legs count --
+    // most crews count UP as they go down the hang (1,2,3,4), some brands'
+    // convention counts DOWN (4,3,2,1). Any hang can still override this
+    // individually via "Descending (4,3,2,1)" in its own Define popover;
+    // this just sets what a hang gets before anyone's touched that
+    // checkbox. Defaults to descending (not ascending) so upgrading this
+    // app doesn't silently renumber an already-configured show.
+    const orderRow = document.createElement('div');
+    orderRow.className = 'swatchRow';
+    orderRow.appendChild(document.createTextNode('Default leg order:'));
+    const orderSelect = document.createElement('select');
+    const ascOpt = document.createElement('option');
+    ascOpt.value = 'asc';
+    ascOpt.textContent = 'Ascending (1,2,3,4)';
+    const descOpt = document.createElement('option');
+    descOpt.value = 'desc';
+    descOpt.textContent = 'Descending (4,3,2,1)';
+    orderSelect.appendChild(ascOpt);
+    orderSelect.appendChild(descOpt);
+    orderSelect.value = cfg.hid_reverse_order_default === false ? 'asc' : 'desc';
+    orderSelect.addEventListener('change', e => {
+      cfg.hid_reverse_order_default = e.target.value !== 'asc';
+      // Only re-numbers hangs actually following the default -- any hang
+      // with its own explicit Descending checkbox state keeps that,
+      // resolveHidReverseOrder sorts out which is which per section.
+      applyHiDNumbering(STATE.sections, cfg.hid_bundle_size || 4);
+      render();
+      saveState(false);
+    });
+    orderRow.appendChild(orderSelect);
+    panel.appendChild(orderRow);
+  }
 
   // The stripe next to CKT that visually shows which boxes share one
   // breakout cable -- same "circuit set" grouping the design generator
@@ -2458,8 +2634,76 @@ function exportPrintMobile() {
   );
 }
 
+// Same identity a hang keeps across PDF revisions, for reconcileUploaded
+// Sections below -- lowercased/trimmed/whitespace-collapsed, and with the
+// same "(Pair)" suffix formatHangTitle already strips for display, so a
+// sim export's own inconsistent capitalization/spacing doesn't break the
+// match on its own.
+function normalizeHangIdentity(header) {
+  return (header || '').replace(PAIR_SUFFIX_RE, '').trim().toLowerCase().replace(/\s+/g, ' ');
+}
+
+// Every per-hang setting that isn't parsed straight from the file --
+// carried forward by reconcileUploadedSections when a re-uploaded hang's
+// name matches one that already had it dialed in. Anything NOT in this
+// list (cabinets, splay, metadata, hanging_mode, ...) is exactly what a
+// revision is FOR, so it always comes from the fresh parse instead.
+const HANG_CARRY_FORWARD_FIELDS = [
+  'hang_profile_id', 'hang_profile_version', 'hid_reverse_order',
+  'hid_manual_breaks', 'hid_cable_overrides', 'tape_burn_ft', 'hang_color',
+  'hidden_tags_overrides', 'apply_manual_circuiting', 'manual_circuit_pattern',
+];
+
+// build_job (app.py) always rebuilds `sections` from scratch on upload,
+// with none of the customization a previous file's hangs had -- this
+// reconnects it by hang name so a revised PDF doesn't force redoing every
+// Hang Profile link, trunk split, cable override, tape burn, etc. by hand.
+// Old sections sharing one hang's name are consumed in the order they
+// appear, so if a name repeats (two hangs both called "SUB"), the Nth new
+// occurrence matches the Nth old one rather than every new one grabbing
+// the same old section. A hang with no old-section match at all (new to
+// this Date, or renamed since the last upload -- see the chat writeup)
+// instead checks saved Hang Profiles by name, so a hang the SE always
+// calls e.g. "16 Sub - Start Brown" auto-relinks even the very first time
+// it shows up on a given Date.
+function reconcileUploadedSections(oldSections, newSections) {
+  const cfg = STATE.circuit_color_config;
+  const bundleSize = (cfg && cfg.hid_bundle_size) || 4;
+  const oldByName = {};
+  (oldSections || []).forEach(s => {
+    const key = normalizeHangIdentity(s.header);
+    (oldByName[key] = oldByName[key] || []).push(s);
+  });
+
+  (newSections || []).forEach(newSection => {
+    const key = normalizeHangIdentity(newSection.header);
+    const pool = oldByName[key];
+    const oldMatch = pool && pool.length ? pool.shift() : null;
+    if (oldMatch) {
+      HANG_CARRY_FORWARD_FIELDS.forEach(f => {
+        if (oldMatch[f] !== undefined) newSection[f] = oldMatch[f];
+      });
+      // Cabinets are all fresh from this upload's parse, so whatever
+      // numbering was carried forward above has to be re-derived onto
+      // them -- same order applyHangProfileToSection uses (manual
+      // circuiting fully replaces the numbers and wins outright, Hi-D
+      // only applies when the show isn't already in manual mode).
+      if (newSection.apply_manual_circuiting && (newSection.manual_circuit_pattern || []).length) {
+        applyManualCircuitPattern(newSection);
+      } else if (cfg && cfg.numbering_mode === 'hid') {
+        applyHiDNumbering([newSection], bundleSize);
+      }
+    } else {
+      const profile = HANG_PROFILES.find(p => normalizeHangIdentity(p.name) === key);
+      if (profile) applyHangProfileToSection(newSection, profile);
+    }
+  });
+  return newSections;
+}
+
 async function uploadFile(file) {
   flashStatus('Uploading...');
+  const oldSections = STATE.sections || [];
   const formData = new FormData();
   formData.append('file', file);
   const res = await fetch(`${API_BASE}/upload`, { method: 'POST', body: formData });
@@ -2470,7 +2714,13 @@ async function uploadFile(file) {
     return;
   }
   STATE = await res.json();
+  // The server always saves a freshly-rebuilt, un-merged `sections` (see
+  // build_job in app.py) -- reconcile by hang name against what was on
+  // screen before this upload, then save that merge back over it so a
+  // reload doesn't lose it again.
+  reconcileUploadedSections(oldSections, STATE.sections || []);
   render();
+  saveState(false);
   flashStatus('Loaded ' + file.name);
 }
 
@@ -2633,8 +2883,8 @@ document.addEventListener('click', e => {
   openHangDefineSection = null;
   render();
 });
-// Same click-outside-to-close approach for the Hi-D cable dropdown (see
-// openHidCableDropdown) -- it isn't tracked by a module-scoped variable
+// Same click-outside-to-close approach for the trunk-stripe menu (see
+// openTrunkStripeMenu) -- it isn't tracked by a module-scoped variable
 // like the popover above since it doesn't need to survive a render() (no
 // field inside it triggers one until an option is actually picked), so
 // this just closes whatever instance happens to be open in the DOM.

@@ -149,7 +149,29 @@ def _assign_circuit_colors(cabinets, palette):
     return assignment
 
 
-def _assign_circuit_set_colors(cabinets, palette, cycle_length, overrides=None):
+def _chunk_into_bundles(seen_order, cycle_length, manual_breaks=None):
+    """
+    Group an ordered list of distinct Circuit # values into consecutive
+    bundles of `cycle_length`, except a value in `manual_breaks` always
+    starts a fresh bundle even mid-cycle -- covers a hang whose amp-rack
+    feed splits into a new physical trunk cable at a box count that isn't
+    a multiple of the bundle size. Mirrors chunkIntoBundles in
+    static/app.js exactly.
+    """
+    breaks = manual_breaks or set()
+    bundles = []
+    current = []
+    for ckt in seen_order:
+        if current and (len(current) >= cycle_length or ckt in breaks):
+            bundles.append(current)
+            current = []
+        current.append(ckt)
+    if current:
+        bundles.append(current)
+    return bundles
+
+
+def _assign_circuit_set_colors(cabinets, palette, cycle_length, overrides=None, manual_breaks=None):
     """
     Group distinct Circuit # values (in first-seen order) into consecutive
     sets of `cycle_length` -- each set is one physical Hi-D breakout cable.
@@ -158,9 +180,11 @@ def _assign_circuit_set_colors(cabinets, palette, cycle_length, overrides=None):
     `overrides` (a set's first Circuit # -> forced 1-based cable #) lets a
     hang whose box count/patching changed pin a specific set to the cable
     it's really plugged into -- every later un-overridden set then keeps
-    counting up FROM that override, not from 1. Mirrors assignCircuitSetColors
-    in static/app.js exactly, so the exported workbook's stripe colors always
-    match what's on screen.
+    counting up FROM that override, not from 1. `manual_breaks` (a set of
+    Circuit # values) forces an early bundle boundary at that circuit, for
+    a hang whose trunk split falls mid-cycle -- see _chunk_into_bundles.
+    Mirrors assignCircuitSetColors in static/app.js exactly, so the
+    exported workbook's stripe colors always match what's on screen.
     """
     assignment = {}
     if not palette:
@@ -175,8 +199,7 @@ def _assign_circuit_set_colors(cabinets, palette, cycle_length, overrides=None):
             seen.add(ckt)
             seen_order.append(ckt)
     current = 0
-    for i in range(0, len(seen_order), cycle_length):
-        bundle = seen_order[i:i + cycle_length]
+    for bundle in _chunk_into_bundles(seen_order, cycle_length, manual_breaks):
         override = overrides.get(bundle[0])
         current = int(override) if override else current + 1
         fill = palette[(current - 1) % len(palette)]
@@ -445,7 +468,7 @@ def write_master_workbook(sections, design_path, output_path, cards_per_row=2, p
         circuit_set_fill_map = (
             _assign_circuit_set_colors(
                 cabinets, circuit_set_palette, circuit_color_config.get('hid_bundle_size') or 4,
-                section.get('hid_cable_overrides'),
+                section.get('hid_cable_overrides'), set(section.get('hid_manual_breaks') or ()),
             )
             if circuit_set_on else {}
         )
