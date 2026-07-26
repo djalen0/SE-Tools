@@ -379,7 +379,10 @@ body.view-only #hangsPanel {
    renderDataTagsPanel (app.js) -- the on-screen Grid/Tabs toggle these
    were originally built for is gone (Tabs' own All tab already covers
    everything Grid did), but this pair of classes lives on for that. */
-.view-mode-toggle { display: flex; border: 1px solid var(--md-color-outline); border-radius: var(--md-shape-sm); overflow: hidden; }
+/* M3 segmented button -- rounded pill ends on the group, square joins
+   between segments (each .view-mode-btn stays unrounded; overflow:hidden
+   on this container is what clips them to the pill shape). */
+.view-mode-toggle { display: flex; border: 1px solid var(--md-color-outline); border-radius: var(--md-shape-full); overflow: hidden; }
 .view-mode-btn {
   padding: 6px 14px; font-size: var(--md-type-body-sm); font-weight: 700; color: var(--md-color-on-surface-variant);
   background: var(--md-color-surface); border: none; border-right: 1px solid var(--md-color-outline); cursor: pointer;
@@ -430,7 +433,13 @@ button {
   border: 1px solid var(--md-color-outline);
   background: var(--md-color-surface);
   color: var(--md-color-on-surface);
-  border-radius: var(--md-shape-sm);
+  /* Full pill, not --md-shape-sm -- M3's actual button shape (filled/
+     outlined/text/tonal/elevated are all fully rounded by default, not
+     the squared-off corners M2 used). The single most recognizable M3
+     signature, and safe here: only the corner radius changes, padding/
+     font-size/box model are untouched, so nothing that depends on a
+     button's actual size (layout, print measurement) is affected. */
+  border-radius: var(--md-shape-full);
   font-size: var(--md-type-body-md);
   font-weight: 600;
   transition: background 0.12s ease, border-color 0.12s ease, color 0.12s ease;
@@ -448,7 +457,10 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 button:focus-visible, input:focus-visible {
   outline: 2px solid var(--md-color-primary); outline-offset: 1px;
 }
-.btn-ghost { background: transparent; color: var(--md-color-on-surface-variant); border-color: var(--md-color-outline-variant); }
+/* M3 Text button -- no visible border (border-color:transparent, not
+   border:none, so the box model/padding stays identical to every other
+   button and nothing reflows). */
+.btn-ghost { background: transparent; color: var(--md-color-on-surface-variant); border-color: transparent; }
 .btn-ghost:hover { background: var(--md-color-primary-container); color: var(--md-color-primary); border-color: var(--md-color-primary-container); }
 .btn-primary { background: var(--md-color-primary); color: var(--md-color-on-primary); border-color: var(--md-color-primary); }
 .btn-primary:hover { background: var(--md-color-primary-hover); border-color: var(--md-color-primary-hover); }
@@ -471,7 +483,10 @@ input[type=text], input[type=number] {
   background: var(--md-color-surface); border: 1px solid var(--md-color-outline-variant); border-radius: var(--md-shape-md);
   box-shadow: var(--md-elevation-1); padding: 14px 16px; text-decoration: none; color: inherit;
 }
-.entity-card:hover { border-color: var(--md-color-primary); }
+/* M3 elevation-on-interaction -- a clickable card lifts to the next
+   elevation tier on hover instead of just changing its border. */
+.entity-card:hover { border-color: var(--md-color-primary); box-shadow: var(--md-elevation-2); }
+.entity-card { transition: box-shadow 0.12s ease, border-color 0.12s ease; }
 .entity-name { font-size: var(--md-type-body-lg); font-weight: 700; color: var(--md-color-on-surface); }
 .entity-sub { font-size: var(--md-type-label-md); color: var(--md-color-on-surface-variant); margin-top: 2px; }
 .entity-arrow { color: var(--md-color-on-surface-variant); font-size: var(--md-type-title-lg); }
@@ -570,7 +585,10 @@ input[type=text], input[type=number] {
 }
 .config-group-btn {
   text-align: left; border: none; background: transparent; color: var(--md-color-on-surface-variant);
-  padding: 9px 10px; border-radius: var(--md-shape-sm); font-size: var(--md-type-body-sm); font-weight: 600;
+  /* Pill, like an M3 nav-drawer selected item -- this is a vertical list
+     of mutually-exclusive nav targets (Data tags/Colors/etc.), the same
+     role a Navigation Drawer's item pill plays. */
+  padding: 9px 10px; border-radius: var(--md-shape-full); font-size: var(--md-type-body-sm); font-weight: 600;
 }
 .config-group-btn:hover { background: var(--md-color-primary-container); color: var(--md-color-primary); }
 .config-group-btn.active { background: var(--md-color-primary-container); color: var(--md-color-primary); }
