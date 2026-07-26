@@ -5,7 +5,8 @@
       "name": "pa-pinner",
       "runtimeExecutable": "C:\\Users\\Jalen\\AppData\\Local\\Programs\\Python\\Python313\\python.exe",
       "runtimeArgs": ["app.py"],
-      "port": 8765
+      "port": 8765,
+      "autoPort": true
     }
   ]
 }
