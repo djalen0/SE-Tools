@@ -562,6 +562,11 @@ input[type=text], input[type=number] {
 .hang-define-popover input[type="text"], .hang-define-popover input[type="number"], .hang-define-popover select {
   font-size: 13px; padding: 3px 6px; flex: 1 1 auto; min-width: 0;
 }
+/* flex: 1 1 100% (not auto, like the single-line inputs above) -- forces
+   this onto its own full-width line below the "Notes" label instead of
+   competing with it for the same line, since .hang-define-row already
+   wraps (flex-wrap: wrap) and a 3-row textarea needs the room. */
+.hang-define-notes-input { font-size: 13px; padding: 4px 6px; flex: 1 1 100%; min-width: 0; resize: vertical; }
 .hang-define-popover hr { width: 100%; border: none; border-top: 1px solid var(--border); margin: 2px 0; }
 /* Fixed-position, stacked bottom-up as checkHangProfileVersions works
    through its queue one hang at a time -- see showNextHangProfileMismatch
@@ -725,6 +730,25 @@ input[type=text], input[type=number] {
   padding: 4px 6px; color: #000 !important;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
+/* Pick-group badge (A1, A2, ... B1, B2, ...) -- sits directly under the
+   Cab # chip above (which is width:100%, so this naturally wraps onto its
+   own line beneath it rather than needing a separate flex/grid wrapper).
+   Small and accent-colored so it reads as a secondary annotation, not
+   competing with the Cab # chip it sits under. See renderCard/
+   openPickGroupMenu in app.js. */
+.pick-group-badge {
+  display: inline-block; margin-top: 2px; font-size: 10px; font-weight: 700;
+  color: var(--accent); background: var(--accent-soft);
+  border: 1px solid var(--accent); border-radius: var(--radius-sm);
+  padding: 1px 4px; line-height: 1.4;
+}
+.pick-group-badge-editable { cursor: pointer; }
+.pick-group-badge-editable:hover { background: var(--accent); color: #fff; }
+/* The actual "new physical stack starts here" divider -- a plain, always-
+   subtle border-bottom already separates every row (see .box-row), this
+   is a deliberately stronger line so a pick boundary reads as a different
+   kind of break at a glance, not just another row. */
+.box-row.pick-group-start { border-top: 2px solid var(--accent); }
 /* A 2-column grid rather than flex-wrap -- flex-wrap sized each chip to
    its own content, so "Mode: Compression" and "Pick (F): 1" landed at
    wildly different widths and the whole column looked like a ragged pile
@@ -781,6 +805,21 @@ input[type=text], input[type=number] {
   padding: 4px 8px; cursor: pointer; margin-bottom: 2px;
 }
 .meta-show-all-btn:hover { background: var(--accent); color: #fff; border-style: solid; }
+/* This hang's free-text Notes (see renderCard/renderHangDefinePopover in
+   app.js) -- spans both grid columns like meta-show-all-btn, since it's
+   prose rather than a label/value pair and shouldn't be forced into the
+   2-column chip pairing fixupMetaChipLayout does for plain .meta-row
+   elements. white-space: pre-wrap preserves line breaks the SE actually
+   typed (bullet-style notes, etc.), same guaranteed-no-truncation
+   philosophy as .meta-value below. */
+.meta-notes-row {
+  grid-column: 1 / -1; display: flex; flex-direction: column; gap: 2px;
+  background: #f6f7fb; border: 1px solid var(--border); border-radius: var(--radius-sm);
+  padding: 4px 8px;
+}
+.meta-notes-label { font-weight: 700; font-size: 13px; color: var(--text-muted); }
+.meta-notes-label::after { content: ':'; }
+.meta-notes-value { font-size: 14px; color: var(--text); white-space: pre-wrap; overflow-wrap: anywhere; }
 .meta-label { font-weight: 700; font-size: 13px; color: var(--text-muted); white-space: nowrap; flex: 0 0 auto; }
 .meta-label::after { content: ':'; }
 /* This is metadata a rigger relies on, so it never gets silently cut off

@@ -14,9 +14,10 @@ wins, same as it would editing a single shared Google Sheet tab with no one
 watching for conflicts.
 
 All the actual pinning-sheet logic (parsing, layout scanning, coloring,
-Hi-D/breakout numbering, Excel writing) is untouched from the desktop tool --
-this file is just the HTTP surface around it: upload a file in, edit state,
-export a file out.
+Hi-D/breakout numbering) is untouched from the desktop tool -- this file is
+just the HTTP surface around it: upload a file in, edit state. PDF export
+(grid or mobile) is the browser's own print-to-PDF and never touches this
+server at all -- see runPrint in static/app.js.
 """
 import hmac
 import json
@@ -28,11 +29,11 @@ import threading
 from datetime import date as date_cls, timedelta
 from pathlib import Path
 
-from flask import Flask, jsonify, request, render_template, send_file, session
+from flask import Flask, jsonify, request, render_template, session
 
 from pinning_parser import parse_pinning_data
 from template_layout import scan_template_layout
-from worksheet_writer import write_master_workbook, load_circuit_color_config
+from worksheet_writer import load_circuit_color_config
 
 BASE_DIR = Path(__file__).resolve().parent
 DESIGN_PATH = BASE_DIR / 'design.xlsx'
@@ -44,19 +45,6 @@ SHOWS_DIR = DATA_DIR / 'shows'
 LEGACY_JOB_FILE = DATA_DIR / 'current_job.json'  # pre-shows/dates single-job file
 
 ALLOWED_EXTENSIONS = {'.pdf', '.txt'}
-
-# Lots of sim software names a symmetrical hang pair with a trailing
-# "(Pair)" marker baked right into the hang's own title/header string --
-# redundant once an SE already knows their rig is symmetric, so job.json's
-# strip_pair_labels toggle (see build_job) can strip it back out wherever a
-# hang's header is shown or exported. Only ever strips a trailing marker,
-# not one that happens to appear mid-title, so a hang genuinely named
-# something like "1. Pair of Subs" is left alone.
-PAIR_SUFFIX_RE = re.compile(r'\s*\(\s*pair\s*\)\s*$', re.IGNORECASE)
-
-
-def strip_pair_label(header):
-    return PAIR_SUFFIX_RE.sub('', header or '')
 
 
 # Data Bar (the Mode/Aim/Trim/Angle/etc. panel) placement -- null means "no
@@ -312,10 +300,8 @@ def build_job(sections, source_name, page_header=None, show=None):
         # Show title/venue/date: title+date are set once at creation time
         # (see api_create_date) from the Show name and the date the editor
         # typed in; venue stays editable from the sidebar. Viewers see all
-        # three as plain text -- and they're the same fields design.xlsx's
-        # PAGE_TITLE/PAGE_VENUE/PAGE_DATE placeholders expect (see
-        # api_export below), so they also carry through to the exported
-        # workbook.
+        # three as plain text, printed at the top of every PDF export (see
+        # the #printHeader block static/app.js's runPrint populates).
         'page_header': page_header or {'title': '', 'venue': '', 'date': ''},
         # Data Tags overrides for THIS Date only (key -> hidden bool) --
         # takes precedence over the Show's own hidden_tags default, but is
@@ -347,6 +333,14 @@ def build_job(sections, source_name, page_header=None, show=None):
         # (unlike hidden_tags_overrides) it IS carried forward, same as
         # cards_per_row.
         'strip_pair_labels': prefs.get('strip_pair_labels', False),
+        # Bumped by api_upload every time a NEW file is parsed into this
+        # Date (never by a plain saveState -- _apply_incoming below has no
+        # 'upload_revision' branch, so a normal edit-and-save can't touch
+        # it) -- lets an exported PDF/workbook name itself distinctly from
+        # one made off a since-replaced seed file even when the show/date/
+        # venue text is identical, without depending on the SE having
+        # renamed the uploaded file itself. 0 means "no file uploaded yet".
+        'upload_revision': 0,
     }
 
 
@@ -854,61 +848,12 @@ def api_upload(show_slug, date_slug):
         # build_job otherwise always starts a fresh job with none set.
         job['hidden_tags_overrides'] = existing.get('hidden_tags_overrides', {})
         job['data_bar_mode_override'] = existing.get('data_bar_mode_override')
+        # A real upload, not the empty seed api_create_date starts a Date
+        # with -- bump past whatever this Date was already on, regardless
+        # of whether the new filename differs from the old one.
+        job['upload_revision'] = (existing.get('upload_revision') or 0) + 1
         save_job(show_slug, date_slug, job)
     return jsonify(job)
-
-
-@app.route('/api/shows/<show_slug>/dates/<date_slug>/export', methods=['POST'])
-def api_export(show_slug, date_slug):
-    data = request.get_json(force=True, silent=True) or {}
-    with STATE_LOCK:
-        job = load_job(show_slug, date_slug)
-        if job is None:
-            return jsonify({'error': 'Not found.'}), 404
-        _apply_incoming(job, data)
-        save_job(show_slug, date_slug, job)
-
-        stem = Path(job['source_file']).stem if job.get('source_file') else 'pinning_sheet'
-        design_path = DESIGN_PATH if DESIGN_PATH.exists() else None
-        with tempfile.NamedTemporaryFile(suffix='.xlsx', delete=False) as tmp:
-            tmp_path = tmp.name
-        page_header = job.get('page_header') or {}
-        page_header_values = {
-            'title': page_header.get('title', ''),
-            'venue': page_header.get('venue', ''),
-            'date': page_header.get('date', ''),
-        }
-        sections_for_export = job['sections']
-        if job.get('strip_pair_labels'):
-            # Shallow per-section copies -- job['sections'] was already
-            # written to disk by save_job above, so mutating a section dict
-            # in place here would be harmless anyway, but copying keeps
-            # this export-only transform from ever being able to touch the
-            # saved job even if that ordering changes later.
-            sections_for_export = [
-                {**s, 'header': strip_pair_label(s.get('header', ''))} for s in job['sections']
-            ]
-        try:
-            warnings = write_master_workbook(
-                sections_for_export, design_path, tmp_path, job.get('cards_per_row', 2),
-                page_header_values=page_header_values,
-            )
-            with open(tmp_path, 'rb') as f:
-                xlsx_bytes = f.read()
-        except Exception as exc:
-            return jsonify({'error': f'Export failed: {exc}'}), 500
-        finally:
-            os.unlink(tmp_path)
-
-    from io import BytesIO
-    response = send_file(
-        BytesIO(xlsx_bytes),
-        as_attachment=True,
-        download_name=f"{stem}_worksheet.xlsx",
-        mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-    )
-    response.headers['X-Export-Warnings'] = json.dumps(warnings)
-    return response
 
 
 @app.route('/healthz')

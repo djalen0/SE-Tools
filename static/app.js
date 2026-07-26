@@ -2,9 +2,7 @@
 // editor's embedded script with no changes to the rendering/color/Hi-D
 // logic (already tested there) -- only the additions needed to be a real
 // webapp: upload instead of a local input/ folder, an empty state before
-// anything's been uploaded, view-only mode for read-only links, and
-// export streaming an actual .xlsx download instead of writing to a local
-// output/ folder.
+// anything's been uploaded, and view-only mode for read-only links.
 
 const FIELD_LABELS = {label:'Cab', model:'Model', dispersion:'Disp', angle:'Splay', circuit:'CKT', nfc:'NFC'};
 let STATE = null;
@@ -746,6 +744,37 @@ function openTrunkStripeMenu(anchor, section, cfg, rowKey, ownerKey, isOwnerRow,
   anchor.appendChild(dropdown);
 }
 
+// The menu opened by clicking a pick-group badge (A1, A2, ... B1, ...) --
+// unlike openTrunkStripeMenu above, there's only ever one possible action
+// (no cable-color list to also offer), since a pick group has nothing
+// analogous to pick from: `isGroupStart` true means this badge only
+// exists because of a manual override (a natural group start -- box-type
+// change or hitting the size cap -- never gets a clickable badge at all,
+// see renderCard), so the only sensible action is undoing it; false means
+// this is a mid-group box, so the only action is forcing a split here.
+// Reuses the exact same .hid-cable-dropdown/-option classes as the trunk
+// menu above -- it's the identical small-anchored-menu pattern, just with
+// one option instead of several.
+function openPickGroupMenu(anchor, section, cab, isGroupStart) {
+  const existing = anchor.querySelector('.hid-cable-dropdown');
+  if (existing) { existing.remove(); return; }
+  const dropdown = document.createElement('div');
+  dropdown.className = 'hid-cable-dropdown';
+  const opt = document.createElement('div');
+  opt.className = 'hid-cable-dropdown-option';
+  opt.textContent = isGroupStart ? 'Undo split (merge with previous pick)' : 'Start new pick here';
+  opt.addEventListener('click', e => {
+    e.stopPropagation();
+    const breaks = new Set(section.pick_manual_breaks || []);
+    if (isGroupStart) breaks.delete(cab.position); else breaks.add(cab.position);
+    section.pick_manual_breaks = Array.from(breaks);
+    render();
+    saveState(false);
+  });
+  dropdown.appendChild(opt);
+  anchor.appendChild(dropdown);
+}
+
 // Opens/closes this hang's Hang Define popover -- see openHangDefineSection
 // above for why the open/closed state has to live at module scope rather
 // than a local closure.
@@ -1073,6 +1102,29 @@ function renderHangDefinePopover(section) {
   nameRow.appendChild(nameInput);
   pop.appendChild(nameRow);
 
+  // Free text, shown on the card face (see renderCard's meta-notes-row)
+  // whenever it's non-empty, and on the printed sheet the same way --
+  // deliberately NOT part of Hang Profiles (like hid_manual_breaks) since
+  // a note is about this specific hang on this specific date, not
+  // something a reusable cross-show template should carry.
+  const notesRow = document.createElement('div');
+  notesRow.className = 'hang-define-row';
+  const notesLabel = document.createElement('label');
+  notesLabel.textContent = 'Notes';
+  notesRow.appendChild(notesLabel);
+  const notesInput = document.createElement('textarea');
+  notesInput.className = 'hang-define-notes-input';
+  notesInput.rows = 3;
+  notesInput.placeholder = "Anything worth flagging about this hang...";
+  notesInput.value = section.notes || '';
+  notesInput.addEventListener('change', e => {
+    section.notes = e.target.value.trim();
+    render();
+    saveState(false);
+  });
+  notesRow.appendChild(notesInput);
+  pop.appendChild(notesRow);
+
   const tagsHeader = document.createElement('div');
   tagsHeader.className = 'hang-define-row hang-define-section-label';
   tagsHeader.textContent = 'Data Tags';
@@ -1308,6 +1360,7 @@ function render() {
   }
   renderColorPanel();
   renderNumberingPanel();
+  renderPickGroupsPanel();
   renderDataTagsPanel();
   renderDataBarPanel();
   renderTrimUnitsPanel();
@@ -1362,6 +1415,66 @@ function formatModelDispersion(cab) {
   const m = disp.match(/^[A-Za-z]+(\d.*)$/);
   const shown = m ? m[1] : disp;
   return `${model} (${shown})`;
+}
+
+// Groups a hang's cabinets into their physical "pick" -- the stack of
+// boxes (generally all one box type, generally ~4) assembled on the
+// ground and hoisted as one unit, then labeled A1-A4, B1-B4, ... from the
+// top of each pick down. A box-type change (formatModelDispersion) always
+// starts a new group -- that's the near-always-true real-world signal, so
+// it wins even mid-count -- maxSize is just a safety cap for an unusually
+// long run of one type (a pick can't be arbitrarily tall). `manualBreaks`
+// (a Set of cab.position values, the same stable per-box identity
+// hid_manual_breaks uses cab._normalCkt for) forces an early split for the
+// rare pick that doesn't follow either signal on its own.
+function computePickGroups(cabinets, maxSize, manualBreaks) {
+  const breaks = manualBreaks || new Set();
+  const size = Math.max(1, maxSize || 4);
+  const groups = [];
+  let current = [];
+  let lastType = null;
+  (cabinets || []).forEach(cab => {
+    const type = formatModelDispersion(cab);
+    const shouldBreak = current.length > 0 && (
+      current.length >= size || type !== lastType || breaks.has(cab.position)
+    );
+    if (shouldBreak) { groups.push(current); current = []; }
+    current.push(cab);
+    lastType = type;
+  });
+  if (current.length) groups.push(current);
+  return groups;
+}
+
+// Spreadsheet-style letters (A, B, ..., Z, AA, AB, ...) for a pick group's
+// index -- a hang with more than 26 picks would be extraordinary, but this
+// keeps the label meaningful even then instead of just running out.
+function pickGroupLetter(index) {
+  let n = index + 1;
+  let out = '';
+  while (n > 0) {
+    const rem = (n - 1) % 26;
+    out = String.fromCharCode(65 + rem) + out;
+    n = Math.floor((n - 1) / 26);
+  }
+  return out;
+}
+
+// cab -> "A1"/"A2"/... label, plus the Set of cabs that start a new group
+// (for both the divider styling and deciding which badge gets the
+// "start/undo a split" click affordance) -- computed once per section,
+// same pattern as circuitFillMap/circuitSetFillMap above.
+function computePickLabels(cabinets, maxSize, manualBreaks) {
+  const labels = new Map();
+  const groupStarts = new Set();
+  computePickGroups(cabinets, maxSize, manualBreaks).forEach((group, gi) => {
+    const letter = pickGroupLetter(gi);
+    group.forEach((cab, pi) => {
+      labels.set(cab, `${letter}${pi + 1}`);
+      if (pi === 0) groupStarts.add(cab);
+    });
+  });
+  return { labels, groupStarts };
 }
 
 // Lots of sim software bakes a trailing "(Pair)" marker right into a
@@ -1467,8 +1580,15 @@ function renderCard(section, cfg, activePalette, cycleLen) {
   boxList.className = 'box-list';
 
   // 'dispersion' is folded into the 'model' column's own display (see
-  // formatModelDispersion) rather than getting a separate column.
-  const fields = (STATE.fields_enabled || []).filter(f => f !== 'dispersion');
+  // formatModelDispersion) rather than getting a separate column. NFC is
+  // admin-only -- signed-in editors see it, an anonymous/view-only
+  // visitor (a ?view=1 link handed to a PA technician, or anyone not
+  // signed in) never does, on screen or in their own PDF export (Export
+  // PDF stays enabled for them -- see isReadOnly's own comment -- so this
+  // has to be filtered here, not just gated behind a disabled control).
+  // No separate toggle for this: it's a fixed rule, not a per-show
+  // preference, so there's nothing to surface as a setting either way.
+  const fields = (STATE.fields_enabled || []).filter(f => f !== 'dispersion' && (f !== 'nfc' || !isReadOnly()));
 
   const headerRow = document.createElement('div');
   headerRow.className = 'box-row box-header';
@@ -1503,9 +1623,25 @@ function renderCard(section, cfg, activePalette, cycleLen) {
     });
   }
 
+  // A completely separate grouping from the above -- circuit/trunk-cable
+  // bundles are about how boxes are WIRED, pick groups are about how
+  // they're physically stacked and hoisted (A1-A4, B1-B4, ...), and the
+  // two don't have to line up even though they often happen to.
+  const pickBreaksSet = new Set(section.pick_manual_breaks || []);
+  const pickInfo = cfg.pick_group_enabled
+    ? computePickLabels(section.cabinets, cfg.pick_group_size || 4, pickBreaksSet)
+    : { labels: new Map(), groupStarts: new Set() };
+
   section.cabinets.forEach((cab, i) => {
     const row = document.createElement('div');
     row.className = 'box-row';
+    // A visible divider above every pick group's first box (except the
+    // very first box overall, which has no group above it to divide from)
+    // -- the badge in the label column (below) carries the actual A1/B1/
+    // etc. text, this is just the "new physical stack starts here" line.
+    if (cfg.pick_group_enabled && i > 0 && pickInfo.groupStarts.has(cab)) {
+      row.classList.add('pick-group-start');
+    }
     const fillEntry = circuitFillMap[cab._normalCkt !== undefined ? cab._normalCkt : cab.ckt];
     if (fillEntry && cfg.show_row_fill !== false) {
       if (cfg.ink_friendly_patterns) {
@@ -1599,6 +1735,37 @@ function renderCard(section, cfg, activePalette, cycleLen) {
         cell.appendChild(wrap);
       } else if (f === 'label') {
         cell.appendChild(makeChip(cab.position));
+        // Pick-group badge (A1, A2, ... B1, B2, ...) -- sits under the
+        // Cab # chip rather than replacing it, since Cab # is still the
+        // actual physical box identifier (NFC tags, tracking, etc.); this
+        // is purely an additional "which stack does this box belong to"
+        // cue. Only a mid-group box (can offer "start a new pick here")
+        // or a group start that only exists because of a manual override
+        // (can offer "undo") has anything to click into -- a natural
+        // group start (box-type change, or hit the size cap) has no
+        // action to take, so it's shown as a plain, non-interactive badge.
+        if (cfg.pick_group_enabled) {
+          const pickLabel = pickInfo.labels.get(cab);
+          if (pickLabel) {
+            const isGroupStart = pickInfo.groupStarts.has(cab);
+            const isManualBreak = isGroupStart && pickBreaksSet.has(cab.position);
+            const badge = document.createElement('div');
+            badge.className = 'pick-group-badge';
+            badge.textContent = pickLabel;
+            const clickable = !isGroupStart || isManualBreak;
+            if (clickable && !isPrintMode()) {
+              badge.classList.add('pick-group-badge-editable');
+              badge.title = isManualBreak
+                ? 'Manual pick split -- click to undo'
+                : 'Click to start a new pick here';
+              badge.addEventListener('click', ev => {
+                ev.stopPropagation();
+                openPickGroupMenu(cell, section, cab, isGroupStart);
+              });
+            }
+            cell.appendChild(badge);
+          }
+        }
       } else if (f === 'model') {
         cell.appendChild(makeChip(formatModelDispersion(cab)));
       } else if (f === 'angle') {
@@ -1714,6 +1881,25 @@ function renderCard(section, cfg, activePalette, cycleLen) {
     meta.appendChild(row);
   });
   if (sawTrimField && !isPrintMode()) meta.appendChild(makeTapeBurnRow(section));
+  // Free text from the Hang Define popover -- deliberately not a
+  // .meta-row (label/value pair): fixupMetaChipLayout pairs up .meta-row
+  // elements two-at-a-time for the 2-column print grid, and a
+  // could-be-long note has no business being forced into that pairing
+  // (same reason meta-show-all-btn isn't a .meta-row either). Only shown
+  // once there's actually something to show.
+  if (section.notes && section.notes.trim()) {
+    const notesRow = document.createElement('div');
+    notesRow.className = 'meta-notes-row';
+    const notesLabel = document.createElement('div');
+    notesLabel.className = 'meta-notes-label';
+    notesLabel.textContent = 'Notes';
+    const notesValue = document.createElement('div');
+    notesValue.className = 'meta-notes-value';
+    notesValue.textContent = section.notes;
+    notesRow.appendChild(notesLabel);
+    notesRow.appendChild(notesValue);
+    meta.appendChild(notesRow);
+  }
   body.appendChild(meta);
 
   content.appendChild(body);
@@ -2296,6 +2482,54 @@ function renderNumberingPanel() {
   panel.appendChild(addSetColorBtn);
 }
 
+// A completely separate concept from the numbering panel above -- this is
+// about how boxes get physically stacked and hoisted (A1-A4, B1-B4, ...),
+// not how they're circuited. Lives in the same circuit_color_config blob
+// purely so it rides along with the existing show/date default-cascade
+// and "reset to show default" machinery for free, same reasoning as
+// breakout numbering sharing that panel/config with circuit colors.
+function renderPickGroupsPanel() {
+  const panel = document.getElementById('pickGroupsPanel');
+  const cfg = STATE.circuit_color_config || (STATE.circuit_color_config = {enabled:false, show_row_fill:true, circuit_colors:[], cycle_length:4, hang_colors:[], circuit_set_enabled:false, circuit_set_colors:[], numbering_mode:'normal', hid_bundle_size:4, breakout_cable_name:'Trunk Cable', ink_friendly_patterns:false});
+  panel.innerHTML = '';
+  appendResetToShowDefaultButton(panel);
+
+  const intro = document.createElement('div');
+  intro.textContent = 'Physical pick groups -- badges the boxes in one hoisted stack A1, A2, ... B1, B2, ..., from the top of each stack down:';
+  panel.appendChild(intro);
+
+  const enabledRow = document.createElement('div');
+  enabledRow.className = 'swatchRow';
+  const enabledCb = document.createElement('input');
+  enabledCb.type = 'checkbox';
+  enabledCb.checked = !!cfg.pick_group_enabled;
+  enabledCb.addEventListener('change', e => { cfg.pick_group_enabled = e.target.checked; render(); saveState(false); });
+  enabledRow.appendChild(enabledCb);
+  enabledRow.appendChild(document.createTextNode(' Show pick group badges'));
+  panel.appendChild(enabledRow);
+
+  if (cfg.pick_group_enabled) {
+    // A box-type change always starts a new group regardless of this
+    // number (see computePickGroups) -- this only caps an unusually long
+    // run of one type, so it rarely needs changing from the real-world
+    // typical stack height.
+    const sizeRow = document.createElement('div');
+    sizeRow.className = 'swatchRow';
+    sizeRow.appendChild(document.createTextNode('Boxes per pick (typical):'));
+    const sizeInput = document.createElement('input');
+    sizeInput.type = 'number';
+    sizeInput.min = 1;
+    sizeInput.value = cfg.pick_group_size || 4;
+    sizeInput.addEventListener('change', e => {
+      cfg.pick_group_size = parseInt(e.target.value) || 4;
+      render();
+      saveState(false);
+    });
+    sizeRow.appendChild(sizeInput);
+    panel.appendChild(sizeRow);
+  }
+}
+
 async function saveState(showStatus) {
   if (!STATE) return;
   const res = await fetch(`${API_BASE}/state`, { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(STATE) });
@@ -2303,36 +2537,6 @@ async function saveState(showStatus) {
     if (res.ok) flashStatus('Saved');
     else flashStatus('Save failed');
   }
-}
-
-async function exportXlsx() {
-  if (!STATE) return;
-  await saveState(false);
-  flashStatus('Exporting...');
-  const res = await fetch(`${API_BASE}/export`, { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(STATE) });
-  if (!res.ok) {
-    let msg = 'Export failed';
-    try { msg = (await res.json()).error || msg; } catch (e) {}
-    flashStatus(msg);
-    return;
-  }
-  const warningsHeader = res.headers.get('X-Export-Warnings');
-  const warnings = warningsHeader ? JSON.parse(warningsHeader) : [];
-  const blob = await res.blob();
-  const disposition = res.headers.get('Content-Disposition') || '';
-  const match = disposition.match(/filename="?([^"]+)"?/);
-  const filename = match ? match[1] : 'pinning_sheet_worksheet.xlsx';
-
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  URL.revokeObjectURL(url);
-
-  flashStatus('Exported' + (warnings.length ? ' (' + warnings.length + ' warning(s))' : ''));
 }
 
 // PDF export re-uses the exact on-screen rendering via the browser's own
@@ -2445,9 +2649,17 @@ function sanitizeFilenamePart(text) {
   return (text || '').replace(/[\\/:*?"<>|]/g, '').trim();
 }
 
-// "YY.MM.DD - Show - Venue" -- venue is dropped entirely (not left as a
-// dangling "- -") when it hasn't been filled in yet.
-function buildExportFilename() {
+// "YY.MM.DD - Show - Venue - Rev N - Mobile" -- venue and Rev N are each
+// dropped entirely (not left as a dangling "- -") rather than shown blank,
+// venue when it hasn't been filled in yet and Rev N when this Date's never
+// had a real file uploaded (STATE.upload_revision still at its 0 default).
+// Rev N (see upload_revision in app.py's build_job/api_upload, bumped once
+// per file actually uploaded into this Date, same server value the Excel
+// export's own filename uses) is what actually answers the "which seed
+// file made this PDF" question when two exports otherwise share an
+// identical show/venue/date -- suffix is this specific export flavor
+// (e.g. "Mobile"), passed in by whichever export function is calling.
+function buildExportFilename(suffix) {
   const pageHeader = (STATE && STATE.page_header) || {};
   const parts = [
     formatDateForFilename(pageHeader.date),
@@ -2455,10 +2667,12 @@ function buildExportFilename() {
   ];
   const venue = sanitizeFilenamePart(pageHeader.venue);
   if (venue) parts.push(venue);
+  if (STATE && STATE.upload_revision) parts.push(`Rev ${STATE.upload_revision}`);
+  if (suffix) parts.push(suffix);
   return parts.join(' - ');
 }
 
-function runPrint(modeClass, pageCss, gridColumns, fitPage) {
+function runPrint(modeClass, pageCss, gridColumns, fitPage, filenameSuffix) {
   if (!STATE) return;
   PRINT_IN_PROGRESS = true;
   document.body.classList.add(modeClass);
@@ -2499,7 +2713,7 @@ function runPrint(modeClass, pageCss, gridColumns, fitPage) {
   // get a meaningful name on the saved file instead of the page's fixed
   // "Pinning Sheet Editor" title.
   const prevTitle = document.title;
-  document.title = buildExportFilename();
+  document.title = buildExportFilename(filenameSuffix);
   let cleanedUp = false;
   const cleanup = () => {
     if (cleanedUp) return; // afterprint firing AND the fallback timer both landing is expected, not a bug
@@ -2630,7 +2844,9 @@ function exportPrintMobile() {
       const heightIn = Math.round(Math.max(PHONE_PAGE_MIN_HEIGHT_IN, (contentHeightPx + marginPx * 2) / 96) * 100) / 100;
       return `@page { size: ${PHONE_PAGE_WIDTH_IN}in ${heightIn}in; margin: ${PHONE_PAGE_MARGIN_MM}mm; }`;
     },
-    '1fr'
+    '1fr',
+    undefined,
+    'Mobile'
   );
 }
 
@@ -2652,6 +2868,7 @@ const HANG_CARRY_FORWARD_FIELDS = [
   'hang_profile_id', 'hang_profile_version', 'hid_reverse_order',
   'hid_manual_breaks', 'hid_cable_overrides', 'tape_burn_ft', 'hang_color',
   'hidden_tags_overrides', 'apply_manual_circuiting', 'manual_circuit_pattern',
+  'notes', 'pick_manual_breaks',
 ];
 
 // build_job (app.py) always rebuilds `sections` from scratch on upload,
@@ -2756,7 +2973,7 @@ function applyViewOnlyLock() {
     if (el.closest('#authPopover') || el.closest('#dataTagsPanel')) return;
     el.disabled = readOnly;
   });
-  const alwaysEnabled = ['exportBtn', 'printGridBtn', 'printMobileBtn', 'printMobileBtnVO', 'colorToggleBtn', 'numberingToggleBtn', 'dataTagsToggleBtn', 'dataTagsToggleBtnVO', 'pageDesignToggleBtn', 'menuToggleBtn', 'menuCloseBtn', 'authLockBtn', 'sidebarToggleTab'];
+  const alwaysEnabled = ['printGridBtn', 'printMobileBtn', 'printMobileBtnVO', 'colorToggleBtn', 'numberingToggleBtn', 'pickGroupsToggleBtn', 'dataTagsToggleBtn', 'dataTagsToggleBtnVO', 'pageDesignToggleBtn', 'menuToggleBtn', 'menuCloseBtn', 'authLockBtn', 'sidebarToggleTab'];
   document.querySelectorAll('button').forEach(btn => {
     if (alwaysEnabled.includes(btn.id) || btn.closest('#authPopover') || btn.closest('#dataTagsPanel') || btn.classList.contains('meta-row-hide-btn') || btn.classList.contains('meta-show-all-btn') || btn.classList.contains('hang-tab')) return;
     btn.disabled = readOnly;
@@ -2787,7 +3004,6 @@ bindShowField('showTitleInput', 'title');
 bindShowField('showVenueInput', 'venue');
 bindShowField('showDateInput', 'date');
 document.getElementById('saveBtn').addEventListener('click', () => saveState(true));
-document.getElementById('exportBtn').addEventListener('click', exportXlsx);
 document.getElementById('printGridBtn').addEventListener('click', exportPrintGrid);
 document.getElementById('printMobileBtn').addEventListener('click', exportPrintMobile);
 // .view-only-topbar's own copy of the mobile PDF export trigger -- see
@@ -2806,7 +3022,7 @@ document.getElementById('printMobileBtnVO').addEventListener('click', exportPrin
 // style.css) rather than flying out, so it's untouched by any of this.
 // Mobile keeps the old expand-in-place behavior for every panel, where
 // several open at once is harmless, so all of this is a no-op there.
-const PAGE_DESIGN_SUBPANEL_IDS = ['dataTagsPanel', 'numberingPanel', 'colorPanel', 'dataBarPanel', 'trimUnitsPanel'];
+const PAGE_DESIGN_SUBPANEL_IDS = ['dataTagsPanel', 'numberingPanel', 'colorPanel', 'pickGroupsPanel', 'dataBarPanel', 'trimUnitsPanel'];
 function toggleSubpanel(panelId) {
   const p = document.getElementById(panelId);
   const opening = p.style.display === 'none';
@@ -2817,6 +3033,7 @@ function toggleSubpanel(panelId) {
 }
 document.getElementById('colorToggleBtn').addEventListener('click', () => toggleSubpanel('colorPanel'));
 document.getElementById('numberingToggleBtn').addEventListener('click', () => toggleSubpanel('numberingPanel'));
+document.getElementById('pickGroupsToggleBtn').addEventListener('click', () => toggleSubpanel('pickGroupsPanel'));
 document.getElementById('dataBarToggleBtn').addEventListener('click', () => toggleSubpanel('dataBarPanel'));
 document.getElementById('trimUnitsToggleBtn').addEventListener('click', () => toggleSubpanel('trimUnitsPanel'));
 document.getElementById('hangsToggleBtn').addEventListener('click', () => {
@@ -2855,6 +3072,7 @@ const PAGE_DESIGN_SUBPANEL_TOGGLE_SELECTORS = {
   dataTagsPanel: '#dataTagsToggleBtn, #dataTagsToggleBtnVO',
   numberingPanel: '#numberingToggleBtn',
   colorPanel: '#colorToggleBtn',
+  pickGroupsPanel: '#pickGroupsToggleBtn',
   dataBarPanel: '#dataBarToggleBtn',
   trimUnitsPanel: '#trimUnitsToggleBtn',
 };
@@ -2889,7 +3107,7 @@ document.addEventListener('click', e => {
 // field inside it triggers one until an option is actually picked), so
 // this just closes whatever instance happens to be open in the DOM.
 document.addEventListener('click', e => {
-  if (e.target.closest('.hid-cable-dropdown, .circuit-set-stripe-editable')) return;
+  if (e.target.closest('.hid-cable-dropdown, .circuit-set-stripe-editable, .pick-group-badge-editable')) return;
   const open = document.querySelector('.hid-cable-dropdown');
   if (open) open.remove();
 });

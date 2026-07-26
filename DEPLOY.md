@@ -93,9 +93,7 @@ restarting.
 - Edit circuit numbers, toggle circuit colors / breakout (Hi-D) numbering
   from the two settings panels, adjust cards-per-row.
 - **Save** persists that Date's job (and settings) to disk.
-- **Export to Excel** downloads the finished `*_worksheet.xlsx`, built from
-  the same `design.xlsx` template baked into this app. **Export PDF** (grid
-  or mobile layout) uses the browser's own print-to-PDF instead.
+- **Export PDF** (grid or mobile layout) uses the browser's own print-to-PDF.
 - Uploading a *new* file replaces that Date's sheet for everyone -- there's
   no per-user copy. If someone else is mid-edit, coordinate before
   uploading over their work (same as you would sharing one paper pinning

@@ -105,6 +105,7 @@
       <div class="toolbar-actions">
         <button id="numberingToggleBtn" class="btn btn-ghost">Circuit numbering&hellip;</button>
         <button id="colorToggleBtn" class="btn btn-ghost">Colors&hellip;</button>
+        <button id="pickGroupsToggleBtn" class="btn btn-ghost">Box groups&hellip;</button>
       </div>
       <!-- Nested right after their own buttons (not left at the bottom of
            the sidebar) same as #dataBarPanel below -- on mobile these are
@@ -117,6 +118,7 @@
            the sidebar instead of right where you were looking. -->
       <div id="numberingPanel" class="settingsPanel" style="display:none;"></div>
       <div id="colorPanel" class="settingsPanel" style="display:none;"></div>
+      <div id="pickGroupsPanel" class="settingsPanel" style="display:none;"></div>
       <div class="toolbar-actions">
         <button id="dataBarToggleBtn" class="btn btn-ghost">Data bar&hellip;</button>
       </div>
@@ -128,7 +130,6 @@
     </div>
     <div class="toolbar-actions">
       <button id="saveBtn" class="btn">Save</button>
-      <button id="exportBtn" class="btn btn-primary">Export to Excel</button>
     </div>
     <!-- PDF export is the browser's own print-to-PDF (window.print(), see
          exportPrintGrid/exportPrintMobile in app.js) rather than a
