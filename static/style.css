@@ -7,18 +7,104 @@
    back down for phones. */
 :root {
   --row-h: 36px;
-  --bg: #f1f2f6;
-  --surface: #ffffff;
-  --border: #e3e5ec;
-  --border-strong: #d1d5e0;
-  --text: #1c2030;
-  --text-muted: #6b7180;
-  --accent: #4f46e5;
-  --accent-hover: #4338ca;
-  --accent-soft: #eef0fe;
-  --radius: 12px;
-  --radius-sm: 6px;
-  --shadow: 0 1px 2px rgba(20, 22, 40, 0.04), 0 4px 14px rgba(20, 22, 40, 0.06);
+
+  /* Material Design 3 color roles -- hand-derived from the app's existing
+     indigo brand accent (#4f46e5) rather than recomputed via a real HCT
+     tonal-palette tool (no build step here to run Material Color
+     Utilities), so --md-color-primary/-primary-hover are just the old
+     --accent/--accent-hover carried over unchanged, with the rest of the
+     roles built out around them to fold in colors that used to be
+     one-off literals scattered through this file (see --md-color-error*,
+     --md-color-scrim, --md-color-surface-variant below). */
+  --md-color-background: #f1f2f6;
+  --md-color-surface: #ffffff;
+  --md-color-surface-variant: #f6f7fb;
+  --md-color-on-surface: #1c2030;
+  --md-color-on-surface-variant: #6b7180;
+  --md-color-outline: #d1d5e0;
+  --md-color-outline-variant: #e3e5ec;
+
+  --md-color-primary: #4f46e5;
+  --md-color-primary-hover: #4338ca;
+  --md-color-on-primary: #ffffff;
+  --md-color-primary-container: #eef0fe;
+  --md-color-on-primary-container: #4f46e5;
+
+  --md-color-error: #b42318;
+  --md-color-error-container: #fef1f0;
+  --md-color-on-error-container: #b42318;
+  --md-color-error-outline: #fbd5d1;
+
+  --md-color-scrim: rgba(15, 17, 30, 0.45);
+  --md-color-surface-translucent: rgba(255, 255, 255, 0.92);
+
+  /* Deliberately NOT aliased to --md-color-surface/-on-surface -- every
+     per-box data value (Cab#, Model, Splay, CKT) renders in its own
+     small opaque chip specifically so it never has to contrast-adapt to
+     an arbitrary user-picked hang/circuit-color row background (see
+     .value-chip/.splay-value below). Kept as its own pair so a future
+     dark-mode pass can't accidentally invert these chips along with the
+     rest of the surface. */
+  --md-color-chip-fixed: #ffffff;
+  --md-color-chip-fixed-text: #000000;
+
+  /* Reserved tonal ramp -- hand-tuned in HSL at the brand's own ~243deg
+     hue, anchored exactly at the existing primary/primary-hover values.
+     Not real HCT/Material Color Utilities output, and not consumed by
+     any selector yet -- pure groundwork for a possible future dark-mode
+     pass, added now while the ramp's anchor points are already in hand. */
+  --md-tone-100: #ffffff;
+  --md-tone-95: #eef0fe;
+  --md-tone-90: #dde0fb;
+  --md-tone-80: #b6bbf5;
+  --md-tone-70: #8f95ef;
+  --md-tone-60: #6d74e8;
+  --md-tone-49: #4f46e5;
+  --md-tone-38: #4338ca;
+  --md-tone-20: #241f6e;
+  --md-tone-10: #14113a;
+  --md-tone-0: #000000;
+
+  /* Shape scale -- --md-shape-sm/-md are exactly the old --radius-sm/
+     --radius carried over unchanged; --md-shape-xs/-full fold in what
+     used to be one-off 4px/999px literals repeated at several pill-
+     shaped badges/buttons. */
+  --md-shape-xs: 4px;
+  --md-shape-sm: 6px;
+  --md-shape-md: 12px;
+  --md-shape-full: 999px;
+
+  /* Elevation tiers, replacing the single flat --shadow every raised
+     surface used to share regardless of how "above" the page it actually
+     sits -- tier 1 for at-rest cards/topbars, tier 2 for floating panels
+     (popovers, flyouts, dropdowns), tier 3 for the true modal dialog.
+     --md-elevation-1 is exactly the old --shadow value, unchanged. */
+  --md-elevation-1: 0 1px 2px rgba(20, 22, 40, 0.04), 0 4px 14px rgba(20, 22, 40, 0.06);
+  --md-elevation-2: 0 2px 6px rgba(20, 22, 40, 0.08), 0 8px 24px rgba(20, 22, 40, 0.12);
+  --md-elevation-3: 0 4px 10px rgba(20, 22, 40, 0.10), 0 16px 36px rgba(20, 22, 40, 0.16);
+
+  /* Type scale -- a rename, not a resize: every px value below is exactly
+     what that selector already used, just given a shared name instead of
+     being a private magic number. Deliberately NOT collapsed into fewer
+     sizes -- the print-fit engine (fitContentToPage/chooseGridPrintColumns
+     in app.js) measures real rendered text, so changing any of these
+     values (even by 1px) risks shifting its column/scale math. Where the
+     same selector legitimately takes a different size at a breakpoint or
+     in body.print-mode-grid, that's a different named step here, not the
+     same token reused -- e.g. .box-row is --md-type-body-sm by default,
+     --md-type-label-md at the 700px breakpoint, --md-type-label-xs in
+     print-mode-grid. */
+  --md-type-display-sm: 20px;
+  --md-type-title-lg: 18px;
+  --md-type-title-md: 17px;
+  --md-type-title-sm: 16px;
+  --md-type-body-lg: 15px;
+  --md-type-body-md: 14px;
+  --md-type-body-sm: 13px;
+  --md-type-label-md: 12px;
+  --md-type-label-sm: 11px;
+  --md-type-label-xs: 10px;
+  --md-type-label-xxs: 9px;
 }
 
 * { box-sizing: border-box; }
@@ -26,8 +112,8 @@
 body {
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   margin: 0;
-  background: var(--bg);
-  color: var(--text);
+  background: var(--md-color-background);
+  color: var(--md-color-on-surface);
   -webkit-font-smoothing: antialiased;
 }
 
@@ -39,15 +125,15 @@ body {
    instead, with .badge-view-only taking over the corner spot it vacates. */
 .auth-lock-btn {
   position: fixed; top: 10px; right: 10px; z-index: 100;
-  width: 36px; height: 36px; border: 1px solid var(--border); border-radius: 999px;
-  background: var(--surface); box-shadow: var(--shadow); font-size: 16px; line-height: 1;
+  width: 36px; height: 36px; border: 1px solid var(--md-color-outline-variant); border-radius: var(--md-shape-full);
+  background: var(--md-color-surface); box-shadow: var(--md-elevation-2); font-size: var(--md-type-title-sm); line-height: 1;
   cursor: pointer; display: flex; align-items: center; justify-content: center; padding: 0;
 }
-.auth-lock-btn:hover { background: var(--accent-soft); }
+.auth-lock-btn:hover { background: var(--md-color-primary-container); }
 .auth-popover {
   position: fixed; top: 52px; right: 10px; z-index: 100; width: 220px;
-  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
-  box-shadow: var(--shadow); padding: 14px;
+  background: var(--md-color-surface); border: 1px solid var(--md-color-outline-variant); border-radius: var(--md-shape-md);
+  box-shadow: var(--md-elevation-2); padding: 14px;
 }
 .auth-popover[hidden] { display: none; }
 /* Date page override -- the popover anchors to .content-header (its
@@ -82,22 +168,22 @@ body.view-only .content-header { padding-bottom: 0; }
 body.view-only .content-header .auth-lock-btn { position: fixed; top: 10px; right: 10px; }
 body.view-only .content-header .auth-popover { position: fixed; top: 52px; right: 10px; left: auto; margin-top: 0; }
 .auth-popover form { display: flex; flex-direction: column; gap: 8px; }
-.auth-popover input[type=password] { width: 100%; padding: 8px 10px; font-size: 14px; }
-.auth-error { font-size: 12px; color: #b42318; margin: 4px 0 0; }
+.auth-popover input[type=password] { width: 100%; padding: 8px 10px; font-size: var(--md-type-body-md); }
+.auth-error { font-size: var(--md-type-label-md); color: var(--md-color-error); margin: 4px 0 0; }
 
 /* --- Breadcrumb (Home / Show / Date) -------------------------------------- */
-.breadcrumb { display: flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 700; min-width: 0; }
-.breadcrumb a { color: var(--text-muted); text-decoration: none; }
-.breadcrumb a:hover { color: var(--accent); text-decoration: underline; }
-.breadcrumb .crumb-current { color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.crumb-sep { color: var(--border-strong); }
+.breadcrumb { display: flex; align-items: center; gap: 6px; font-size: var(--md-type-body-sm); font-weight: 700; min-width: 0; }
+.breadcrumb a { color: var(--md-color-on-surface-variant); text-decoration: none; }
+.breadcrumb a:hover { color: var(--md-color-primary); text-decoration: underline; }
+.breadcrumb .crumb-current { color: var(--md-color-on-surface); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.crumb-sep { color: var(--md-color-outline); }
 .date-switcher {
-  border: none; background: transparent; font-size: 13px; font-weight: 700; color: var(--text);
+  border: none; background: transparent; font-size: var(--md-type-body-sm); font-weight: 700; color: var(--md-color-on-surface);
   padding: 2px 0; max-width: 140px;
 }
 .page-topbar {
-  display: flex; align-items: center; padding: 14px 20px; background: var(--surface);
-  border-bottom: 1px solid var(--border); box-shadow: var(--shadow);
+  display: flex; align-items: center; padding: 14px 20px; background: var(--md-color-surface);
+  border-bottom: 1px solid var(--md-color-outline-variant); box-shadow: var(--md-elevation-1);
 }
 
 /* --- App shell / sidebar menu -------------------------------------------
@@ -109,13 +195,13 @@ body.view-only .content-header .auth-popover { position: fixed; top: 52px; right
 .app-shell { min-height: 100vh; }
 .mobile-topbar {
   display: flex; align-items: center; gap: 12px; padding: 10px 14px;
-  background: var(--surface); border-bottom: 1px solid var(--border); box-shadow: var(--shadow);
+  background: var(--md-color-surface); border-bottom: 1px solid var(--md-color-outline-variant); box-shadow: var(--md-elevation-1);
   position: sticky; top: 0; z-index: 30;
 }
 .mobile-topbar .breadcrumb { min-width: 0; flex: 1; }
 .menu-toggle { padding: 8px 12px; }
 .sidebar-backdrop {
-  display: none; position: fixed; inset: 0; background: rgba(15, 17, 30, 0.45); z-index: 39;
+  display: none; position: fixed; inset: 0; background: var(--md-color-scrim); z-index: 39;
 }
 .sidebar-backdrop.visible { display: block; }
 body.menu-open { overflow: hidden; }
@@ -138,14 +224,14 @@ body.menu-open .auth-popover {
 }
 .sidebar {
   position: fixed; top: 0; left: 0; bottom: 0; width: 85vw; max-width: 340px;
-  background: var(--surface); box-shadow: var(--shadow); z-index: 40;
+  background: var(--md-color-surface); box-shadow: var(--md-elevation-1); z-index: 40;
   transform: translateX(-100%); transition: transform 0.2s ease;
   overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 14px;
 }
 .sidebar.open { transform: translateX(0); }
 .sidebar-header { display: flex; flex-direction: column; gap: 10px; }
 .sidebar-header-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-.menu-close { padding: 4px 10px; font-size: 20px; line-height: 1; }
+.menu-close { padding: 4px 10px; font-size: var(--md-type-display-sm); line-height: 1; }
 /* Desktop-only -- mobile already has menuToggleBtn/menuCloseBtn for
    show/hide, so this stays hidden there and only appears inside the
    min-width:700px query below. */
@@ -177,13 +263,13 @@ body.menu-open .auth-popover {
    further down the sheet on specificity, regardless of source order. */
 .show-info .show-field {
   border: none; background: transparent; padding: 2px 0; margin: 0;
-  color: var(--text); font-family: inherit; width: 100%;
+  color: var(--md-color-on-surface); font-family: inherit; width: 100%;
 }
-.show-info .show-field::placeholder { color: var(--text-muted); opacity: 0.7; }
-.show-info .show-field:disabled { opacity: 1; cursor: default; -webkit-text-fill-color: var(--text); }
-.show-info .show-title { font-size: 17px; font-weight: 700; letter-spacing: -0.01em; }
-.show-info .show-venue, .show-info .show-date { font-size: 13px; color: var(--text-muted); font-weight: 600; }
-.show-info .show-venue:disabled, .show-info .show-date:disabled { -webkit-text-fill-color: var(--text-muted); }
+.show-info .show-field::placeholder { color: var(--md-color-on-surface-variant); opacity: 0.7; }
+.show-info .show-field:disabled { opacity: 1; cursor: default; -webkit-text-fill-color: var(--md-color-on-surface); }
+.show-info .show-title { font-size: var(--md-type-title-md); font-weight: 700; letter-spacing: -0.01em; }
+.show-info .show-venue, .show-info .show-date { font-size: var(--md-type-body-sm); color: var(--md-color-on-surface-variant); font-weight: 600; }
+.show-info .show-venue:disabled, .show-info .show-date:disabled { -webkit-text-fill-color: var(--md-color-on-surface-variant); }
 /* Takes over the lock icon's usual fixed top-right corner -- the lock
    itself has moved inline into .content-header on this page (see
    index.html), freeing that corner up. Hidden by default/on mobile
@@ -193,9 +279,9 @@ body.menu-open .auth-popover {
 .badge-view-only {
   display: none;
   position: fixed; top: 10px; right: 10px; z-index: 100;
-  font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em;
-  color: #b42318; background: #fef1f0; border: 1px solid #fbd5d1;
-  padding: 3px 8px; border-radius: 999px;
+  font-size: var(--md-type-label-sm); font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em;
+  color: var(--md-color-on-error-container); background: var(--md-color-error-container); border: 1px solid var(--md-color-error-outline);
+  padding: 3px 8px; border-radius: var(--md-shape-full);
 }
 .toolbar-actions { display: flex; flex-direction: column; gap: 8px; }
 .toolbar-actions button { width: 100%; }
@@ -219,14 +305,14 @@ body.view-only .content-header-fields {
 }
 body.view-only .view-only-topbar {
   display: block; position: absolute; top: 0; left: 0; right: 0; z-index: 25;
-  background: rgba(255, 255, 255, 0.92); -webkit-backdrop-filter: blur(2px); backdrop-filter: blur(2px);
-  padding: 8px 14px; border-bottom: 1px solid var(--border);
+  background: var(--md-color-surface-translucent); -webkit-backdrop-filter: blur(2px); backdrop-filter: blur(2px);
+  padding: 8px 14px; border-bottom: 1px solid var(--md-color-outline-variant);
 }
-.view-only-topbar .breadcrumb { font-size: 11px; margin-bottom: 3px; }
-.vo-title { font-size: 14px; font-weight: 700; color: var(--text); letter-spacing: -0.01em; }
-.vo-meta { font-size: 11px; color: var(--text-muted); font-weight: 600; }
+.view-only-topbar .breadcrumb { font-size: var(--md-type-label-sm); margin-bottom: 3px; }
+.vo-title { font-size: var(--md-type-body-md); font-weight: 700; color: var(--md-color-on-surface); letter-spacing: -0.01em; }
+.vo-meta { font-size: var(--md-type-label-sm); color: var(--md-color-on-surface-variant); font-weight: 600; }
 .vo-actions { display: flex; gap: 8px; margin-top: 8px; }
-.vo-data-tags-btn { padding: 5px 10px; font-size: 12px; width: auto; }
+.vo-data-tags-btn { padding: 5px 10px; font-size: var(--md-type-label-md); width: auto; }
 /* #dataTagsPanel lives outside .sidebar (see the comment on it in
    index.html) so it has to be its own floating popover rather than an
    inline block in the sidebar's flow like colorPanel/numberingPanel --
@@ -235,8 +321,8 @@ body.view-only .view-only-topbar {
 #dataTagsPanel {
   position: fixed; top: 112px; left: 12px; right: 12px; max-width: 340px; margin: 0 auto;
   z-index: 45; max-height: 70vh; overflow-y: auto;
-  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
-  box-shadow: var(--shadow); padding: 14px 14px 4px;
+  background: var(--md-color-surface); border: 1px solid var(--md-color-outline-variant); border-radius: var(--md-shape-md);
+  box-shadow: var(--md-elevation-2); padding: 14px 14px 4px;
 }
 /* Being position:absolute, the topbar doesn't push content down on its
    own -- without this, the first thing below it (the hang tab buttons,
@@ -276,30 +362,30 @@ body.view-only #dataBarPanel,
 body.view-only #hangsPanel {
   display: none !important;
 }
-.print-actions { margin-top: 2px; padding-top: 10px; border-top: 1px solid var(--border); }
-.upload-label { font-size: 12px; font-weight: 600; color: var(--text-muted); display: flex; flex-direction: column; align-items: flex-start; gap: 6px; }
-.field-inline { font-size: 12px; font-weight: 600; color: var(--text-muted); display: flex; flex-direction: row; align-items: center; gap: 8px; }
+.print-actions { margin-top: 2px; padding-top: 10px; border-top: 1px solid var(--md-color-outline-variant); }
+.upload-label { font-size: var(--md-type-label-md); font-weight: 600; color: var(--md-color-on-surface-variant); display: flex; flex-direction: column; align-items: flex-start; gap: 6px; }
+.field-inline { font-size: var(--md-type-label-md); font-weight: 600; color: var(--md-color-on-surface-variant); display: flex; flex-direction: row; align-items: center; gap: 8px; }
 /* Cards per row / Data bar / Strip-pair-labels, grouped together --
    .settingsPanel itself has no built-in child spacing (its other users
    build their own rows via .swatchRow), so this needs its own gap. */
 #pageDesignPanel { display: flex; flex-direction: column; gap: 10px; }
-.upload-label input[type=file] { font-size: 12px; max-width: 100%; color: var(--text); }
-.field-inline input[type=number] { width: 70px; height: 32px; font-size: 14px; }
+.upload-label input[type=file] { font-size: var(--md-type-label-md); max-width: 100%; color: var(--md-color-on-surface); }
+.field-inline input[type=number] { width: 70px; height: 32px; font-size: var(--md-type-body-md); }
 .field-checkbox {
-  font-size: 12px; font-weight: 600; color: var(--text-muted);
+  font-size: var(--md-type-label-md); font-weight: 600; color: var(--md-color-on-surface-variant);
   display: flex; flex-direction: row; align-items: center; gap: 6px;
 }
 /* Shared with the per-tag Default/Show/Hide override control in
    renderDataTagsPanel (app.js) -- the on-screen Grid/Tabs toggle these
    were originally built for is gone (Tabs' own All tab already covers
    everything Grid did), but this pair of classes lives on for that. */
-.view-mode-toggle { display: flex; border: 1px solid var(--border-strong); border-radius: var(--radius-sm); overflow: hidden; }
+.view-mode-toggle { display: flex; border: 1px solid var(--md-color-outline); border-radius: var(--md-shape-sm); overflow: hidden; }
 .view-mode-btn {
-  padding: 6px 14px; font-size: 13px; font-weight: 700; color: var(--text-muted);
-  background: #fff; border: none; border-right: 1px solid var(--border-strong); cursor: pointer;
+  padding: 6px 14px; font-size: var(--md-type-body-sm); font-weight: 700; color: var(--md-color-on-surface-variant);
+  background: var(--md-color-surface); border: none; border-right: 1px solid var(--md-color-outline); cursor: pointer;
 }
 .view-mode-btn:last-child { border-right: none; }
-.view-mode-btn.active { background: var(--accent); color: #fff; }
+.view-mode-btn.active { background: var(--md-color-primary); color: var(--md-color-on-primary); }
 /* Tabs view: one hang at a time instead of the whole grid -- always a
    single row, never a second line or a horizontal scrollbar (either one
    is a hidden-affordance UI this feature exists to avoid). Each tab keeps
@@ -312,10 +398,10 @@ body.view-only #hangsPanel {
    the top corners rounded, sitting on the shared baseline .hang-tabs
    draws under them, so the whole row reads as one physical strip rather
    than a row of separate buttons. */
-.hang-tabs { display: flex; flex-wrap: nowrap; align-items: flex-end; gap: 3px; padding: 12px 12px 0; border-bottom: 1px solid var(--border-strong); }
+.hang-tabs { display: flex; flex-wrap: nowrap; align-items: flex-end; gap: 3px; padding: 12px 12px 0; border-bottom: 1px solid var(--md-color-outline); }
 .hang-tab {
-  padding: 8px 12px 7px; font-size: 13px; font-weight: 700; color: var(--text-muted);
-  background: var(--bg); border: 1px solid var(--border-strong); border-bottom: none;
+  padding: 8px 12px 7px; font-size: var(--md-type-body-sm); font-weight: 700; color: var(--md-color-on-surface-variant);
+  background: var(--md-color-background); border: 1px solid var(--md-color-outline); border-bottom: none;
   border-radius: 8px 8px 0 0; cursor: pointer;
   flex: 0 1 auto; min-width: 0; max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
@@ -326,10 +412,10 @@ body.view-only #hangsPanel {
    "attached to what's below it" illusion a real folder tab or browser
    tab uses. */
 .hang-tab.active {
-  background: var(--surface); color: var(--accent); border-color: var(--border-strong);
+  background: var(--md-color-surface); color: var(--md-color-primary); border-color: var(--md-color-outline);
   margin-bottom: -1px; padding-bottom: 8px;
 }
-.status-msg { font-size: 12px; color: var(--text-muted); font-weight: 600; }
+.status-msg { font-size: var(--md-type-label-md); color: var(--md-color-on-surface-variant); font-weight: 600; }
 .main-content { min-width: 0; }
 
 /* --- Buttons ------------------------------------------------------------
@@ -341,28 +427,35 @@ body.view-only #hangsPanel {
 button {
   cursor: pointer;
   padding: 10px 14px;
-  border: 1px solid var(--border-strong);
-  background: var(--surface);
-  color: var(--text);
-  border-radius: var(--radius-sm);
-  font-size: 14px;
+  border: 1px solid var(--md-color-outline);
+  background: var(--md-color-surface);
+  color: var(--md-color-on-surface);
+  border-radius: var(--md-shape-sm);
+  font-size: var(--md-type-body-md);
   font-weight: 600;
   transition: background 0.12s ease, border-color 0.12s ease, color 0.12s ease;
 }
-button:hover { background: #f6f7fb; border-color: #b7bcca; }
-button:active { background: #eceefb; }
+button:hover {
+  background: #f6f7fb; /* fallback for browsers without color-mix() */
+  background: color-mix(in srgb, var(--md-color-on-surface) 8%, var(--md-color-surface));
+  border-color: #b7bcca;
+}
+button:active {
+  background: #eceefb; /* fallback for browsers without color-mix() */
+  background: color-mix(in srgb, var(--md-color-on-surface) 10%, var(--md-color-surface));
+}
 button:disabled { opacity: 0.5; cursor: not-allowed; }
 button:focus-visible, input:focus-visible {
-  outline: 2px solid var(--accent); outline-offset: 1px;
+  outline: 2px solid var(--md-color-primary); outline-offset: 1px;
 }
-.btn-ghost { background: transparent; color: var(--text-muted); border-color: var(--border); }
-.btn-ghost:hover { background: var(--accent-soft); color: var(--accent); border-color: var(--accent-soft); }
-.btn-primary { background: var(--accent); color: #fff; border-color: var(--accent); }
-.btn-primary:hover { background: var(--accent-hover); border-color: var(--accent-hover); }
+.btn-ghost { background: transparent; color: var(--md-color-on-surface-variant); border-color: var(--md-color-outline-variant); }
+.btn-ghost:hover { background: var(--md-color-primary-container); color: var(--md-color-primary); border-color: var(--md-color-primary-container); }
+.btn-primary { background: var(--md-color-primary); color: var(--md-color-on-primary); border-color: var(--md-color-primary); }
+.btn-primary:hover { background: var(--md-color-primary-hover); border-color: var(--md-color-primary-hover); }
 
 input[type=text], input[type=number] {
-  border: 1px solid var(--border-strong); border-radius: var(--radius-sm);
-  padding: 6px 8px; font-size: 14px; color: var(--text); background: var(--surface);
+  border: 1px solid var(--md-color-outline); border-radius: var(--md-shape-sm);
+  padding: 6px 8px; font-size: var(--md-type-body-md); color: var(--md-color-on-surface); background: var(--md-color-surface);
 }
 
 /* --- Home/Show list pages -------------------------------------------------
@@ -370,22 +463,22 @@ input[type=text], input[type=number] {
    within one show) -- same card-list treatment as the pinning-sheet
    cards elsewhere, just simpler content. */
 .page-content { max-width: 640px; margin: 0 auto; padding: 24px 20px 60px; }
-.page-content h1 { font-size: 20px; font-weight: 700; margin: 0 0 4px; }
-.page-content .page-sub { font-size: 13px; color: var(--text-muted); margin: 0 0 20px; }
+.page-content h1 { font-size: var(--md-type-display-sm); font-weight: 700; margin: 0 0 4px; }
+.page-content .page-sub { font-size: var(--md-type-body-sm); color: var(--md-color-on-surface-variant); margin: 0 0 20px; }
 .entity-list { display: flex; flex-direction: column; gap: 10px; margin-bottom: 20px; }
 .entity-card {
   display: flex; align-items: center; justify-content: space-between; gap: 12px;
-  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
-  box-shadow: var(--shadow); padding: 14px 16px; text-decoration: none; color: inherit;
+  background: var(--md-color-surface); border: 1px solid var(--md-color-outline-variant); border-radius: var(--md-shape-md);
+  box-shadow: var(--md-elevation-1); padding: 14px 16px; text-decoration: none; color: inherit;
 }
-.entity-card:hover { border-color: var(--accent); }
-.entity-name { font-size: 15px; font-weight: 700; color: var(--text); }
-.entity-sub { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
-.entity-arrow { color: var(--text-muted); font-size: 18px; }
-.entity-empty { font-size: 13px; color: var(--text-muted); padding: 20px 0; text-align: center; }
+.entity-card:hover { border-color: var(--md-color-primary); }
+.entity-name { font-size: var(--md-type-body-lg); font-weight: 700; color: var(--md-color-on-surface); }
+.entity-sub { font-size: var(--md-type-label-md); color: var(--md-color-on-surface-variant); margin-top: 2px; }
+.entity-arrow { color: var(--md-color-on-surface-variant); font-size: var(--md-type-title-lg); }
+.entity-empty { font-size: var(--md-type-body-sm); color: var(--md-color-on-surface-variant); padding: 20px 0; text-align: center; }
 .new-entity-form {
-  display: flex; gap: 8px; background: var(--surface); border: 1px solid var(--border);
-  border-radius: var(--radius); box-shadow: var(--shadow); padding: 14px 16px; flex-wrap: wrap;
+  display: flex; gap: 8px; background: var(--md-color-surface); border: 1px solid var(--md-color-outline-variant);
+  border-radius: var(--md-shape-md); box-shadow: var(--md-elevation-1); padding: 14px 16px; flex-wrap: wrap;
 }
 .new-entity-form input[type=text] { flex: 1; min-width: 160px; }
 .show-settings-toggle { margin-top: 20px; }
@@ -393,46 +486,46 @@ input[type=text], input[type=number] {
 /* --- Login page ---------------------------------------------------------- */
 .login-shell { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 20px; }
 .login-card {
-  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
-  box-shadow: var(--shadow); padding: 32px 28px; width: 100%; max-width: 340px;
+  background: var(--md-color-surface); border: 1px solid var(--md-color-outline-variant); border-radius: var(--md-shape-md);
+  box-shadow: var(--md-elevation-1); padding: 32px 28px; width: 100%; max-width: 340px;
   display: flex; flex-direction: column; gap: 14px;
 }
-.login-card h1 { font-size: 18px; font-weight: 700; margin: 0; text-align: center; color: var(--text); }
-.login-sub { font-size: 13px; color: var(--text-muted); margin: 0; text-align: center; }
+.login-card h1 { font-size: var(--md-type-title-lg); font-weight: 700; margin: 0; text-align: center; color: var(--md-color-on-surface); }
+.login-sub { font-size: var(--md-type-body-sm); color: var(--md-color-on-surface-variant); margin: 0; text-align: center; }
 .login-error {
-  font-size: 13px; color: #b42318; background: #fef1f0; border: 1px solid #fbd5d1;
-  border-radius: var(--radius-sm); padding: 8px 10px; margin: 0; text-align: center;
+  font-size: var(--md-type-body-sm); color: var(--md-color-on-error-container); background: var(--md-color-error-container); border: 1px solid var(--md-color-error-outline);
+  border-radius: var(--md-shape-sm); padding: 8px 10px; margin: 0; text-align: center;
 }
-.login-card input[type=password] { width: 100%; padding: 10px 12px; font-size: 15px; }
-.login-card button { padding: 10px 14px; font-size: 15px; }
+.login-card input[type=password] { width: 100%; padding: 10px 12px; font-size: var(--md-type-body-lg); }
+.login-card button { padding: 10px 14px; font-size: var(--md-type-body-lg); }
 
 /* --- Settings panels -----------------------------------------------------
    These live inline in the sidebar (opened by the Colors.../Circuit
    Numbering... toggles), not as a separate full-width dropdown -- just a
    rule off the rest of the menu, not its own bordered/shadowed card. */
 .settingsPanel {
-  padding: 12px 0 0; margin-top: 4px; border-top: 1px solid var(--border);
-  font-size: 13px;
+  padding: 12px 0 0; margin-top: 4px; border-top: 1px solid var(--md-color-outline-variant);
+  font-size: var(--md-type-body-sm);
 }
 .settingsPanel .swatchRow { display: flex; align-items: center; gap: 8px; margin: 10px 0; flex-wrap: wrap; }
-.panel-note { font-size: 11px; color: var(--text-muted); margin: 0 0 10px; line-height: 1.4; }
+.panel-note { font-size: var(--md-type-label-sm); color: var(--md-color-on-surface-variant); margin: 0 0 10px; line-height: 1.4; }
 .show-all-tags-btn { margin-bottom: 8px; }
 .tag-override-row { justify-content: space-between; }
 .tag-override-label { flex: 1 1 auto; min-width: 0; }
 .tag-override-toggle { flex: 0 0 auto; }
-.tag-override-toggle .view-mode-btn { padding: 5px 10px; font-size: 12px; }
+.tag-override-toggle .view-mode-btn { padding: 5px 10px; font-size: var(--md-type-label-md); }
 .hangs-row { display: flex; align-items: center; gap: 6px; margin: 8px 0; }
 .hangs-move-btn {
   flex: 0 0 auto; width: 26px; height: 26px; padding: 0;
   display: flex; align-items: center; justify-content: center;
-  font-size: 13px; line-height: 1;
+  font-size: var(--md-type-body-sm); line-height: 1;
 }
-.hangs-name-input { flex: 1 1 auto; min-width: 0; font-size: 13px; padding: 5px 8px; }
-.settingsPanel input[type=color] { width: 36px; height: 32px; padding: 0; border: 1px solid var(--border-strong); border-radius: 4px; }
+.hangs-name-input { flex: 1 1 auto; min-width: 0; font-size: var(--md-type-body-sm); padding: 5px 8px; }
+.settingsPanel input[type=color] { width: 36px; height: 32px; padding: 0; border: 1px solid var(--md-color-outline); border-radius: var(--md-shape-xs); }
 .settingsPanel input[type=text] { width: 110px; height: 32px; }
 .settingsPanel input[type=number] { width: 56px; height: 32px; }
-.settingsPanel button { padding: 6px 12px; font-size: 13px; }
-.panel-label { font-size: 12px; font-weight: 700; color: var(--text-muted); margin: 12px 0 6px; }
+.settingsPanel button { padding: 6px 12px; font-size: var(--md-type-body-sm); }
+.panel-label { font-size: var(--md-type-label-md); font-weight: 700; color: var(--md-color-on-surface-variant); margin: 12px 0 6px; }
 /* A real grid instead of one flex-wrap row -- flex-wrap let a color swatch
    land at the end of one line and its own remove button wrap to the start
    of the next, so the two visually split apart ("a smattering of chips
@@ -451,43 +544,43 @@ input[type=text], input[type=number] {
    any unsaved draft; only Apply/Apply & Exit persist it (see show.js). */
 .modal-backdrop {
   display: flex; align-items: center; justify-content: center;
-  position: fixed; inset: 0; background: rgba(15, 17, 30, 0.45); z-index: 200;
+  position: fixed; inset: 0; background: var(--md-color-scrim); z-index: 200;
   padding: 16px;
 }
 .modal-backdrop[hidden] { display: none; }
 .modal-box {
-  background: var(--surface); border-radius: var(--radius); box-shadow: var(--shadow);
+  background: var(--md-color-surface); border-radius: var(--md-shape-md); box-shadow: var(--md-elevation-3);
   width: 100%; max-width: 480px; max-height: 85vh;
   display: flex; flex-direction: column; overflow: hidden;
 }
 .modal-header {
   display: flex; align-items: center; justify-content: space-between;
-  padding: 14px 16px; border-bottom: 1px solid var(--border); flex: 0 0 auto;
+  padding: 14px 16px; border-bottom: 1px solid var(--md-color-outline-variant); flex: 0 0 auto;
 }
-.modal-header h2 { font-size: 16px; font-weight: 700; margin: 0; }
+.modal-header h2 { font-size: var(--md-type-title-sm); font-weight: 700; margin: 0; }
 .modal-close-btn {
-  padding: 2px 8px; font-size: 20px; line-height: 1; border: none;
-  background: transparent; color: var(--text-muted);
+  padding: 2px 8px; font-size: var(--md-type-display-sm); line-height: 1; border: none;
+  background: transparent; color: var(--md-color-on-surface-variant);
 }
-.modal-close-btn:hover { background: var(--accent-soft); color: var(--accent); }
+.modal-close-btn:hover { background: var(--md-color-primary-container); color: var(--md-color-primary); }
 .modal-body { display: flex; flex: 1 1 auto; min-height: 0; }
 .config-groups {
-  flex: 0 0 120px; overflow-y: auto; border-right: 1px solid var(--border);
+  flex: 0 0 120px; overflow-y: auto; border-right: 1px solid var(--md-color-outline-variant);
   padding: 10px; display: flex; flex-direction: column; gap: 2px;
 }
 .config-group-btn {
-  text-align: left; border: none; background: transparent; color: var(--text-muted);
-  padding: 9px 10px; border-radius: var(--radius-sm); font-size: 13px; font-weight: 600;
+  text-align: left; border: none; background: transparent; color: var(--md-color-on-surface-variant);
+  padding: 9px 10px; border-radius: var(--md-shape-sm); font-size: var(--md-type-body-sm); font-weight: 600;
 }
-.config-group-btn:hover { background: var(--accent-soft); color: var(--accent); }
-.config-group-btn.active { background: var(--accent-soft); color: var(--accent); }
-.config-options { flex: 1 1 auto; min-width: 0; overflow-y: auto; padding: 14px 16px; font-size: 13px; }
+.config-group-btn:hover { background: var(--md-color-primary-container); color: var(--md-color-primary); }
+.config-group-btn.active { background: var(--md-color-primary-container); color: var(--md-color-primary); }
+.config-options { flex: 1 1 auto; min-width: 0; overflow-y: auto; padding: 14px 16px; font-size: var(--md-type-body-sm); }
 .config-options .swatchRow { display: flex; align-items: center; gap: 8px; margin: 10px 0; flex-wrap: wrap; }
-.config-options button { padding: 6px 12px; font-size: 13px; }
-.config-options .hangs-name-input { font-size: 13px; }
+.config-options button { padding: 6px 12px; font-size: var(--md-type-body-sm); }
+.config-options .hangs-name-input { font-size: var(--md-type-body-sm); }
 .modal-footer {
   display: flex; justify-content: flex-end; gap: 8px;
-  padding: 12px 16px; border-top: 1px solid var(--border); flex: 0 0 auto;
+  padding: 12px 16px; border-top: 1px solid var(--md-color-outline-variant); flex: 0 0 auto;
 }
 @media (min-width: 700px) {
   .modal-box { max-width: 560px; }
@@ -497,10 +590,10 @@ input[type=text], input[type=number] {
 /* --- Empty state --------------------------------------------------------*/
 .empty-state {
   max-width: 420px; margin: 48px auto; padding: 28px 22px; text-align: center;
-  background: var(--surface); border: 1px dashed var(--border-strong); border-radius: var(--radius);
+  background: var(--md-color-surface); border: 1px dashed var(--md-color-outline); border-radius: var(--md-shape-md);
 }
-.empty-title { font-size: 15px; font-weight: 700; color: var(--text); margin: 0 0 6px; }
-.empty-sub { font-size: 13px; color: var(--text-muted); margin: 0; }
+.empty-title { font-size: var(--md-type-body-lg); font-weight: 700; color: var(--md-color-on-surface); margin: 0 0 6px; }
+.empty-sub { font-size: var(--md-type-body-sm); color: var(--md-color-on-surface-variant); margin: 0; }
 
 /* Only ever shown in @media print, below -- the sidebar (where show
    title/venue/date actually live) is hidden for print, so this is the
@@ -514,8 +607,8 @@ input[type=text], input[type=number] {
    value only takes effect at/above that same breakpoint). */
 .grid { display: grid; gap: 14px; padding: 12px; }
 .card {
-  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
-  box-shadow: var(--shadow); overflow: hidden; display: flex;
+  background: var(--md-color-surface); border: 1px solid var(--md-color-outline-variant); border-radius: var(--md-shape-md);
+  box-shadow: var(--md-elevation-1); overflow: hidden; display: flex;
   /* Lets the Data Tags column react to the CARD's own rendered width (see
      the "pin-card" @container rules below) instead of the viewport's --
      a card can end up narrow either because the window is narrow or
@@ -525,8 +618,8 @@ input[type=text], input[type=number] {
 }
 .card-title {
   display: flex; align-items: center; justify-content: center; gap: 6px;
-  font-weight: 700; font-size: 14px; padding: 10px 8px;
-  background: var(--accent-soft); border-bottom: 1px solid var(--border);
+  font-weight: 700; font-size: var(--md-type-body-md); padding: 10px 8px;
+  background: var(--md-color-primary-container); border-bottom: 1px solid var(--md-color-outline-variant);
   letter-spacing: 0.01em;
 }
 .card-title-text { flex: 1 1 auto; text-align: center; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -535,58 +628,58 @@ input[type=text], input[type=number] {
    a way back. */
 .meta-toggle-btn {
   display: none; flex: 0 0 auto; align-items: center; justify-content: center;
-  font-size: 11px; font-weight: 700; color: var(--accent); background: #fff;
-  border: 1px solid var(--border-strong); border-radius: 999px; padding: 3px 10px;
+  font-size: var(--md-type-label-sm); font-weight: 700; color: var(--md-color-primary); background: var(--md-color-chip-fixed);
+  border: 1px solid var(--md-color-outline); border-radius: var(--md-shape-full); padding: 3px 10px;
   cursor: pointer;
 }
-.card.meta-expanded .meta-toggle-btn { background: var(--accent); color: #fff; border-color: var(--accent); }
+.card.meta-expanded .meta-toggle-btn { background: var(--md-color-primary); color: var(--md-color-on-primary); border-color: var(--md-color-primary); }
 /* Always visible (unlike .meta-toggle-btn above) -- opens the Hang Define
    popover, see makeHangDefineTrigger/renderHangDefinePopover. */
 .hang-define-trigger-btn {
   display: inline-flex; flex: 0 0 auto; align-items: center; justify-content: center;
-  font-size: 12px; background: #fff; border: 1px solid var(--border-strong);
-  border-radius: 999px; padding: 3px 8px; cursor: pointer; opacity: 0.7;
+  font-size: var(--md-type-label-md); background: var(--md-color-chip-fixed); border: 1px solid var(--md-color-outline);
+  border-radius: var(--md-shape-full); padding: 3px 8px; cursor: pointer; opacity: 0.7;
 }
-.hang-define-trigger-btn:hover { opacity: 1; border-color: var(--accent); }
-.hang-define-trigger-btn.hang-define-active { opacity: 1; background: var(--accent); border-color: var(--accent); color: #fff; }
+.hang-define-trigger-btn:hover { opacity: 1; border-color: var(--md-color-primary); }
+.hang-define-trigger-btn.hang-define-active { opacity: 1; background: var(--md-color-primary); border-color: var(--md-color-primary); color: var(--md-color-on-primary); }
 /* Expands in place below the card title (see renderCard/
    renderHangDefinePopover in app.js) -- normal document flow, not a
    floating overlay, so it never fights .card's own overflow:hidden. */
 .hang-define-popover {
   display: flex; flex-direction: column; gap: 6px; padding: 10px 12px;
-  background: #f6f7fb; border-bottom: 1px solid var(--border); font-size: 13px;
+  background: var(--md-color-surface-variant); border-bottom: 1px solid var(--md-color-outline-variant); font-size: var(--md-type-body-sm);
 }
 .hang-define-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
-.hang-define-row label { font-weight: 700; color: var(--text-muted); min-width: 130px; }
+.hang-define-row label { font-weight: 700; color: var(--md-color-on-surface-variant); min-width: 130px; }
 .hang-define-section-label { font-weight: 700; margin-top: 4px; }
 .hang-define-popover input[type="text"], .hang-define-popover input[type="number"], .hang-define-popover select {
-  font-size: 13px; padding: 3px 6px; flex: 1 1 auto; min-width: 0;
+  font-size: var(--md-type-body-sm); padding: 3px 6px; flex: 1 1 auto; min-width: 0;
 }
 /* flex: 1 1 100% (not auto, like the single-line inputs above) -- forces
    this onto its own full-width line below the "Notes" label instead of
    competing with it for the same line, since .hang-define-row already
    wraps (flex-wrap: wrap) and a 3-row textarea needs the room. */
-.hang-define-notes-input { font-size: 13px; padding: 4px 6px; flex: 1 1 100%; min-width: 0; resize: vertical; }
-.hang-define-popover hr { width: 100%; border: none; border-top: 1px solid var(--border); margin: 2px 0; }
+.hang-define-notes-input { font-size: var(--md-type-body-sm); padding: 4px 6px; flex: 1 1 100%; min-width: 0; resize: vertical; }
+.hang-define-popover hr { width: 100%; border: none; border-top: 1px solid var(--md-color-outline-variant); margin: 2px 0; }
 /* Fixed-position, stacked bottom-up as checkHangProfileVersions works
    through its queue one hang at a time -- see showNextHangProfileMismatch
    in app.js. */
 .hang-profile-mismatch-banner {
   position: fixed; left: 50%; bottom: 16px; transform: translateX(-50%);
   z-index: 50; display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
-  max-width: calc(100vw - 32px); background: var(--text); color: #fff;
-  border-radius: var(--radius); padding: 10px 14px; box-shadow: var(--shadow);
-  font-size: 13px;
+  max-width: calc(100vw - 32px); background: var(--md-color-on-surface); color: var(--md-color-surface);
+  border-radius: var(--md-shape-md); padding: 10px 14px; box-shadow: var(--md-elevation-2);
+  font-size: var(--md-type-body-sm);
 }
 .hang-profile-mismatch-banner button {
-  background: #fff; color: var(--text); border: none; border-radius: var(--radius-sm);
+  background: var(--md-color-surface); color: var(--md-color-on-surface); border: none; border-radius: var(--md-shape-sm);
   padding: 4px 10px; cursor: pointer; font-weight: 700;
 }
 .card-body { display: flex; flex-direction: column; }
-.box-list { border-bottom: 1px solid var(--border); }
-.box-row { display: flex; height: var(--row-h); align-items: center; border-bottom: 1px solid #edeef3; font-size: 13px; padding: 0 10px; box-sizing: border-box; }
-.box-header { font-weight: 700; background: #f8f8fb; border-bottom: 1px solid var(--border-strong); }
-.box-header .box-cell { font-size: 11px; font-weight: 800; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.04em; }
+.box-list { border-bottom: 1px solid var(--md-color-outline-variant); }
+.box-row { display: flex; height: var(--row-h); align-items: center; border-bottom: 1px solid var(--md-color-outline-variant); font-size: var(--md-type-body-sm); padding: 0 10px; box-sizing: border-box; }
+.box-header { font-weight: 700; background: var(--md-color-surface-variant); border-bottom: 1px solid var(--md-color-outline); }
+.box-header .box-cell { font-size: var(--md-type-label-sm); font-weight: 800; color: var(--md-color-on-surface-variant); text-transform: uppercase; letter-spacing: 0.04em; }
 /* The Splay/CKT columns stretch their body-row cells to the full row
    height (so the splay badge can sit on the border, and the circuit-set
    stripe can run the row's full height) -- but that same stretch, if left
@@ -599,8 +692,8 @@ input[type=text], input[type=number] {
 .field-label { flex: 0 0 32px; }
 .field-model { flex: 1.6; max-width: 150px; }
 .ckt-input {
-  width: 44px; height: 32px; text-align: center; font-size: 14px; font-weight: 800;
-  border: 1px solid var(--border-strong); border-radius: var(--radius-sm); background: #fff; color: #000 !important;
+  width: 44px; height: 32px; text-align: center; font-size: var(--md-type-body-md); font-weight: 800;
+  border: 1px solid var(--md-color-outline); border-radius: var(--md-shape-sm); background: var(--md-color-chip-fixed); color: var(--md-color-chip-fixed-text) !important;
 }
 /* Splay is the most important value on the card, so its column is
    narrow (less horizontal space spent on it) but the cell itself is
@@ -646,7 +739,7 @@ input[type=text], input[type=number] {
    without having to compute contrast per swatch. */
 .circuit-set-edit-icon {
   position: absolute; left: 0; right: 0; top: 2px; text-align: center;
-  font-size: 12px; font-weight: 900; line-height: 1; color: #fff; pointer-events: none;
+  font-size: var(--md-type-label-md); font-weight: 900; line-height: 1; color: #fff; pointer-events: none;
   text-shadow: 0 0 2px #000, 0 0 2px #000, 0 1px 1px #000;
 }
 /* Cable #/split menu opened by clicking the stripe -- see
@@ -654,15 +747,15 @@ input[type=text], input[type=number] {
    relative), which already hosts the stripe itself. */
 .hid-cable-dropdown {
   position: absolute; left: -26px; top: 100%; z-index: 20;
-  background: var(--surface); border: 1px solid var(--border-strong); border-radius: var(--radius-sm);
-  box-shadow: var(--shadow); max-height: 220px; overflow-y: auto; min-width: 110px;
+  background: var(--md-color-surface); border: 1px solid var(--md-color-outline); border-radius: var(--md-shape-sm);
+  box-shadow: var(--md-elevation-2); max-height: 220px; overflow-y: auto; min-width: 110px;
 }
 .hid-cable-dropdown-option {
   display: flex; align-items: center; gap: 6px; padding: 5px 10px;
-  font-size: 12px; white-space: nowrap; cursor: pointer;
+  font-size: var(--md-type-label-md); white-space: nowrap; cursor: pointer;
 }
-.hid-cable-dropdown-option:hover { background: var(--accent-soft); }
-.hid-cable-dropdown-option.selected { font-weight: 700; background: var(--accent-soft); }
+.hid-cable-dropdown-option:hover { background: var(--md-color-primary-container); }
+.hid-cable-dropdown-option.selected { font-weight: 700; background: var(--md-color-primary-container); }
 .hid-cable-dropdown-swatch {
   width: 14px; height: 14px; border-radius: 3px; flex: 0 0 auto;
   border: 1px solid rgba(0,0,0,0.15);
@@ -693,14 +786,16 @@ input[type=text], input[type=number] {
   position: absolute; top: 0; left: 50%; transform: translate(-50%, -50%);
   width: 42px; height: 26px; box-sizing: border-box;
   display: flex; align-items: center; justify-content: center;
-  background: #fff; border: 1px solid var(--text); border-radius: var(--radius-sm);
-  font-size: 13px; line-height: 1; white-space: nowrap; z-index: 2;
+  background: var(--md-color-chip-fixed); border: 1px solid var(--md-color-on-surface); border-radius: var(--md-shape-sm);
+  font-size: var(--md-type-body-sm); line-height: 1; white-space: nowrap; z-index: 2;
   /* Always dark text on this badge's own opaque white background,
      regardless of the row's circuit-color text color (which is set for
      contrast against a colored ROW background, not this badge's white
      one -- inheriting it made the splay value invisible on colored
-     rows). */
-  color: #000 !important;
+     rows). --md-color-chip-fixed-text (not -on-surface) on purpose --
+     this chip is deliberately NOT part of the surface color role, see
+     the token's own comment in :root. */
+  color: var(--md-color-chip-fixed-text) !important;
 }
 /* Sits on the row border shared with the box above, same anchoring trick
    as .splay-value -- pinned just outside the CKT wrap's own right edge (a
@@ -710,8 +805,8 @@ input[type=text], input[type=number] {
   position: absolute; top: 0; right: -20px; transform: translateY(-50%);
   width: 18px; height: 18px; box-sizing: border-box;
   display: flex; align-items: center; justify-content: center;
-  background: #fff; border: 1px solid var(--border-strong); border-radius: 999px;
-  color: var(--text-muted); z-index: 2;
+  background: var(--md-color-chip-fixed); border: 1px solid var(--md-color-outline); border-radius: var(--md-shape-full);
+  color: var(--md-color-on-surface-variant); z-index: 2;
 }
 .circuit-link-icon svg { width: 12px; height: 12px; }
 /* Cab#, Splay, and Circuit are the values a rigger actually checks
@@ -726,8 +821,8 @@ input[type=text], input[type=number] {
 .value-chip {
   display: inline-flex; align-items: center; justify-content: center;
   width: 100%; max-width: 100%; box-sizing: border-box;
-  background: #fff; border: 1px solid var(--border-strong); border-radius: var(--radius-sm);
-  padding: 4px 6px; color: #000 !important;
+  background: var(--md-color-chip-fixed); border: 1px solid var(--md-color-outline); border-radius: var(--md-shape-sm);
+  padding: 4px 6px; color: var(--md-color-chip-fixed-text) !important;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 /* Pick-group badge (A1, A2, ... B1, B2, ...) -- sits directly under the
@@ -737,18 +832,18 @@ input[type=text], input[type=number] {
    competing with the Cab # chip it sits under. See renderCard/
    openPickGroupMenu in app.js. */
 .pick-group-badge {
-  display: inline-block; margin-top: 2px; font-size: 10px; font-weight: 700;
-  color: var(--accent); background: var(--accent-soft);
-  border: 1px solid var(--accent); border-radius: var(--radius-sm);
+  display: inline-block; margin-top: 2px; font-size: var(--md-type-label-xs); font-weight: 700;
+  color: var(--md-color-primary); background: var(--md-color-primary-container);
+  border: 1px solid var(--md-color-primary); border-radius: var(--md-shape-sm);
   padding: 1px 4px; line-height: 1.4;
 }
 .pick-group-badge-editable { cursor: pointer; }
-.pick-group-badge-editable:hover { background: var(--accent); color: #fff; }
+.pick-group-badge-editable:hover { background: var(--md-color-primary); color: var(--md-color-on-primary); }
 /* The actual "new physical stack starts here" divider -- a plain, always-
    subtle border-bottom already separates every row (see .box-row), this
    is a deliberately stronger line so a pick boundary reads as a different
    kind of break at a glance, not just another row. */
-.box-row.pick-group-start { border-top: 2px solid var(--accent); }
+.box-row.pick-group-start { border-top: 2px solid var(--md-color-primary); }
 /* A 2-column grid rather than flex-wrap -- flex-wrap sized each chip to
    its own content, so "Mode: Compression" and "Pick (F): 1" landed at
    wildly different widths and the whole column looked like a ragged pile
@@ -764,7 +859,7 @@ input[type=text], input[type=number] {
    the Data Bar is squeezed beside a possibly-tall cabinet list and
    height, not width, is the scarce resource -- see the row-layout
    override in the min-width:700px block below. */
-.meta-col { font-size: 13px; display: grid; grid-template-columns: 1fr; align-content: start; gap: 6px; padding: 10px; }
+.meta-col { font-size: var(--md-type-body-sm); display: grid; grid-template-columns: 1fr; align-content: start; gap: 6px; padding: 10px; }
 /* Label and value share one line ("Aim: +/- 5deg") instead of stacking
    on two -- each chip is a grid item, stretched by the grid to fill its
    column's width evenly rather than sized to its own content. */
@@ -777,7 +872,7 @@ input[type=text], input[type=number] {
    default inline guess, corrected after a real-DOM measurement pass. */
 .meta-row {
   display: flex; flex-direction: row; flex-wrap: nowrap; align-items: baseline; gap: 4px;
-  max-width: 100%; background: #f6f7fb; border: 1px solid var(--border); border-radius: var(--radius-sm);
+  max-width: 100%; background: var(--md-color-surface-variant); border: 1px solid var(--md-color-outline-variant); border-radius: var(--md-shape-sm);
   padding: 4px 8px; overflow: visible; position: relative;
 }
 .meta-row.meta-row-stacked { flex-direction: column; align-items: flex-start; gap: 1px; }
@@ -789,22 +884,22 @@ input[type=text], input[type=number] {
 .meta-row-hide-btn {
   position: absolute; top: -6px; right: -6px; width: 16px; height: 16px;
   display: flex; align-items: center; justify-content: center; padding: 0;
-  font-size: 12px; line-height: 1; color: var(--text-muted);
-  background: #fff; border: 1px solid var(--border-strong); border-radius: 999px;
+  font-size: var(--md-type-label-md); line-height: 1; color: var(--md-color-on-surface-variant);
+  background: var(--md-color-chip-fixed); border: 1px solid var(--md-color-outline); border-radius: var(--md-shape-full);
   opacity: 0.55; cursor: pointer; z-index: 1;
 }
-.meta-row-hide-btn:hover, .meta-row-hide-btn:focus { opacity: 1; color: #b42318; }
+.meta-row-hide-btn:hover, .meta-row-hide-btn:focus { opacity: 1; color: var(--md-color-error); }
 /* Only rendered at all once something's hidden (see renderCard in
    app.js) -- spans both grid columns of .meta-col so it reads as a
    header bar sitting over the tag chips, not another chip-sized item
    competing with them in the grid. */
 .meta-show-all-btn {
   grid-column: 1 / -1; text-align: center;
-  font-size: 11px; font-weight: 700; color: var(--accent);
-  background: var(--accent-soft); border: 1px dashed var(--accent); border-radius: var(--radius-sm);
+  font-size: var(--md-type-label-sm); font-weight: 700; color: var(--md-color-primary);
+  background: var(--md-color-primary-container); border: 1px dashed var(--md-color-primary); border-radius: var(--md-shape-sm);
   padding: 4px 8px; cursor: pointer; margin-bottom: 2px;
 }
-.meta-show-all-btn:hover { background: var(--accent); color: #fff; border-style: solid; }
+.meta-show-all-btn:hover { background: var(--md-color-primary); color: var(--md-color-on-primary); border-style: solid; }
 /* This hang's free-text Notes (see renderCard/renderHangDefinePopover in
    app.js) -- spans both grid columns like meta-show-all-btn, since it's
    prose rather than a label/value pair and shouldn't be forced into the
@@ -814,13 +909,13 @@ input[type=text], input[type=number] {
    philosophy as .meta-value below. */
 .meta-notes-row {
   grid-column: 1 / -1; display: flex; flex-direction: column; gap: 2px;
-  background: #f6f7fb; border: 1px solid var(--border); border-radius: var(--radius-sm);
+  background: var(--md-color-surface-variant); border: 1px solid var(--md-color-outline-variant); border-radius: var(--md-shape-sm);
   padding: 4px 8px;
 }
-.meta-notes-label { font-weight: 700; font-size: 13px; color: var(--text-muted); }
+.meta-notes-label { font-weight: 700; font-size: var(--md-type-body-sm); color: var(--md-color-on-surface-variant); }
 .meta-notes-label::after { content: ':'; }
-.meta-notes-value { font-size: 14px; color: var(--text); white-space: pre-wrap; overflow-wrap: anywhere; }
-.meta-label { font-weight: 700; font-size: 13px; color: var(--text-muted); white-space: nowrap; flex: 0 0 auto; }
+.meta-notes-value { font-size: var(--md-type-body-md); color: var(--md-color-on-surface); white-space: pre-wrap; overflow-wrap: anywhere; }
+.meta-label { font-weight: 700; font-size: var(--md-type-body-sm); color: var(--md-color-on-surface-variant); white-space: nowrap; flex: 0 0 auto; }
 .meta-label::after { content: ':'; }
 /* This is metadata a rigger relies on, so it never gets silently cut off
    -- inline (default) wraps onto a second line rather than truncating
@@ -829,23 +924,23 @@ input[type=text], input[type=number] {
    it's the nicer-looking option, but wrapping in place is the guaranteed
    fallback either way, not a last resort that can go stale. */
 .meta-value {
-  font-size: 17px; font-weight: 700; color: var(--text); flex: 1 1 auto; min-width: 0;
+  font-size: var(--md-type-title-md); font-weight: 700; color: var(--md-color-on-surface); flex: 1 1 auto; min-width: 0;
   white-space: normal; overflow-wrap: anywhere;
 }
 /* The raw/"Burnt Trim" reading shown alongside a Trim row's True Trim
    value (see renderCard in app.js) -- red/maroon so a burnt (not-yet-
    corrected) reading never gets mistaken for the real distance. */
-.trim-burnt-value { color: #b42318; font-weight: 700; }
+.trim-burnt-value { color: var(--md-color-error); font-weight: 700; }
 /* Fire icon on the "Tape Burn" row (see makeTapeBurnRow in app.js) --
    click to swap the value for a small number input, right on the card.
    Disabled for signed-out/view-only visitors by the same global lock
    (applyViewOnlyLock) as every other editable control. */
 .tape-burn-btn {
   padding: 0; border: none; background: none; cursor: pointer;
-  font-size: 13px; line-height: 1; margin-left: 4px; vertical-align: middle;
+  font-size: var(--md-type-body-sm); line-height: 1; margin-left: 4px; vertical-align: middle;
 }
 .tape-burn-btn:disabled { cursor: not-allowed; opacity: 0.4; }
-.tape-burn-ft-input { width: 52px; font-size: 13px; padding: 1px 3px; }
+.tape-burn-ft-input { width: 52px; font-size: var(--md-type-body-sm); padding: 1px 3px; }
 
 /* --- Data Tags responsiveness --------------------------------------------
    Keyed to the CARD's own rendered width (via container-type:inline-size
@@ -893,7 +988,7 @@ input[type=text], input[type=number] {
      row with) and min-width forces card-body wider than the card,
      overflowing it. */
   .grid.databar-bottom .card-body { flex-direction: column; min-width: 0; }
-  .grid.databar-bottom .card .box-list { border-right: none; border-bottom: 1px solid var(--border); max-width: none; }
+  .grid.databar-bottom .card .box-list { border-right: none; border-bottom: 1px solid var(--md-color-outline-variant); max-width: none; }
   .grid.databar-bottom .card .meta-col { flex-basis: auto; }
   /* body.print-mode-grid gets the exact same treatment as a forced
      Bottom Data Bar mode, regardless of whatever mode the SE actually
@@ -910,7 +1005,7 @@ input[type=text], input[type=number] {
      print-mode-grid compacting rules further down for the rest of what
      makes this actually fit. */
   body.print-mode-grid .card-body { flex-direction: column !important; min-width: 0 !important; }
-  body.print-mode-grid .card .box-list { border-right: none !important; border-bottom: 1px solid var(--border) !important; max-width: none !important; }
+  body.print-mode-grid .card .box-list { border-right: none !important; border-bottom: 1px solid var(--md-color-outline-variant) !important; max-width: none !important; }
   body.print-mode-grid .card .meta-col { flex-basis: auto !important; order: 0 !important; }
 }
 .grid.databar-side-left .card .meta-col,
@@ -928,7 +1023,7 @@ body.print-mode-grid .card .meta-col {
    matches the card's own border color -- without it, an unset (or white)
    stripe color has no edge at all and looks like a rendering glitch
    rather than an intentional part of the card. */
-.hang-stripe-bar { flex: 0 0 3.5%; align-self: stretch; border-right: 1px solid var(--border); }
+.hang-stripe-bar { flex: 0 0 3.5%; align-self: stretch; border-right: 1px solid var(--md-color-outline-variant); }
 .card-content { flex: 1; min-width: 0; }
 
 /* --- Desktop enhancements ---------------------------------------------
@@ -951,8 +1046,8 @@ body.print-mode-grid .card .meta-col {
   .settingsPanel {
     position: fixed; top: 20px; left: 272px; width: 320px; max-height: calc(100vh - 40px);
     margin: 0; padding: 14px; border-top: none; overflow-y: auto;
-    background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
-    box-shadow: var(--shadow); z-index: 50;
+    background: var(--md-color-surface); border: 1px solid var(--md-color-outline-variant); border-radius: var(--md-shape-md);
+    box-shadow: var(--md-elevation-2); z-index: 50;
   }
   /* left/top explicitly redeclared here, not just inherited from
      .settingsPanel above -- #dataTagsPanel's own base (mobile) rule sets
@@ -970,14 +1065,14 @@ body.print-mode-grid .card .meta-col {
      once clicked. */
   #hangsPanel, #pageDesignPanel {
     position: static; width: auto; max-height: none; overflow-y: visible;
-    margin-top: 4px; padding: 12px 0 0; border-top: 1px solid var(--border);
+    margin-top: 4px; padding: 12px 0 0; border-top: 1px solid var(--md-color-outline-variant);
     background: none; border-left: none; border-right: none; border-bottom: none;
     box-shadow: none; z-index: auto;
   }
   .sidebar {
     position: sticky; top: 0; left: auto; transform: none !important;
     width: 260px; flex: 0 0 260px; height: 100vh; box-shadow: none;
-    border-right: 1px solid var(--border); padding: 20px;
+    border-right: 1px solid var(--md-color-outline-variant); padding: 20px;
     transition: flex-basis 0.2s ease, width 0.2s ease, padding 0.2s ease, opacity 0.15s ease;
   }
   .menu-close { display: none; }
@@ -1001,11 +1096,11 @@ body.print-mode-grid .card .meta-col {
   .sidebar-toggle-tab {
     display: flex; align-items: center; justify-content: center;
     position: fixed; left: 260px; top: 50%; transform: translateY(-50%); z-index: 20;
-    width: 18px; height: 56px; background: var(--surface); color: var(--text-muted);
-    border: 1px solid var(--border-strong); border-radius: 6px; box-shadow: var(--shadow);
-    font-size: 13px; cursor: pointer; transition: left 0.2s ease;
+    width: 18px; height: 56px; background: var(--md-color-surface); color: var(--md-color-on-surface-variant);
+    border: 1px solid var(--md-color-outline); border-radius: 6px; box-shadow: var(--md-elevation-2);
+    font-size: var(--md-type-body-sm); cursor: pointer; transition: left 0.2s ease;
   }
-  .sidebar-toggle-tab:hover { color: var(--accent); border-color: var(--accent); }
+  .sidebar-toggle-tab:hover { color: var(--md-color-primary); border-color: var(--md-color-primary); }
   body.sidebar-collapsed .sidebar-toggle-tab { left: 0; }
   /* Desktop view-only: the side rail comes back (just decluttered by the
      body.view-only rules further up -- Page design/Hangs/Save stay
@@ -1027,13 +1122,13 @@ body.print-mode-grid .card .meta-col {
   body.view-only .grid,
   body.view-only .hang-tabs { padding-top: 20px; }
   .upload-label input[type=file] { max-width: 100%; }
-  .field-inline input[type=number] { width: 60px; height: auto; font-size: 13px; }
-  button { padding: 7px 14px; font-size: 13px; }
-  input[type=text], input[type=number] { padding: 5px 8px; font-size: 13px; }
+  .field-inline input[type=number] { width: 60px; height: auto; font-size: var(--md-type-body-sm); }
+  button { padding: 7px 14px; font-size: var(--md-type-body-sm); }
+  input[type=text], input[type=number] { padding: 5px 8px; font-size: var(--md-type-body-sm); }
   .settingsPanel input[type=color] { width: 28px; height: 24px; }
   .settingsPanel input[type=text] { width: 90px; height: auto; }
   .settingsPanel input[type=number] { height: auto; }
-  .settingsPanel button { padding: 4px 10px; font-size: 12px; }
+  .settingsPanel button { padding: 4px 10px; font-size: var(--md-type-label-md); }
   .empty-state { margin: 64px auto; padding: 32px 28px; }
 
   .grid { gap: 18px; padding: 20px; }
@@ -1056,14 +1151,14 @@ body.print-mode-grid .card .meta-col {
      stacked (column) layout mobile already uses -- there, box-list is
      alone on its own row with no sibling to share width with, so it
      should use the full card width like it always did. */
-  .box-list { flex: 1; border-right: 1px solid var(--border); border-bottom: none; max-width: 350px; }
+  .box-list { flex: 1; border-right: 1px solid var(--md-color-outline-variant); border-bottom: none; max-width: 350px; }
   .box-cell { padding: 0 2px; }
-  .box-row { font-size: 12px; }
+  .box-row { font-size: var(--md-type-label-md); }
   .field-label { flex: 0 0 30px; }
-  .ckt-input { width: 34px; height: auto; font-size: 12px; }
+  .ckt-input { width: 34px; height: auto; font-size: var(--md-type-label-md); }
   .field-angle { flex: 0 0 38px; }
   .circuit-set-stripe { width: 12px; }
-  .splay-value { width: 34px; height: 20px; font-size: 11px; }
+  .splay-value { width: 34px; height: 20px; font-size: var(--md-type-label-sm); }
   .value-chip { padding: 2px 6px; }
   /* Row layout (Side) puts the Data Bar in a fixed 230px strip beside a
      possibly-tall cabinet list -- narrower than Bottom mode gets, but
@@ -1071,10 +1166,10 @@ body.print-mode-grid .card .meta-col {
      .meta-value's wrap-don't-truncate fallback (see below) covers
      whatever doesn't fit on one line, so this stays inline like every
      other mode instead of needing its own stacked treatment. */
-  .meta-col { flex: 0 0 230px; font-size: 11px; gap: 5px; padding: 8px; }
+  .meta-col { flex: 0 0 230px; font-size: var(--md-type-label-sm); gap: 5px; padding: 8px; }
   .meta-row { padding: 3px 5px; }
-  .meta-label { font-size: 12px; }
-  .meta-value { font-size: 13px; }
+  .meta-label { font-size: var(--md-type-label-md); }
+  .meta-value { font-size: var(--md-type-body-sm); }
   .hang-stripe-bar { flex: 0 0 7%; }
 }
 
@@ -1098,7 +1193,7 @@ body.print-mode-grid .card .meta-col {
    regime. */
 @container pin-card (max-width: 480px) {
   .card-body { flex-direction: column; min-width: 0; }
-  .box-list { border-right: none; border-bottom: 1px solid var(--border); max-width: none; }
+  .box-list { border-right: none; border-bottom: 1px solid var(--md-color-outline-variant); max-width: none; }
   .meta-col { flex-basis: auto; }
 }
 
@@ -1143,8 +1238,8 @@ body.print-mode-grid .card .meta-col {
   .card { box-shadow: none; border: 1px solid #999; break-inside: avoid; page-break-inside: avoid; }
 
   .print-header { display: block; margin: 0 0 14px; text-align: center; }
-  .print-header .ph-title { font-size: 20px; font-weight: 700; }
-  .print-header .ph-meta { font-size: 12px; color: #444; margin-top: 2px; }
+  .print-header .ph-title { font-size: var(--md-type-display-sm); font-weight: 700; }
+  .print-header .ph-meta { font-size: var(--md-type-label-md); color: #444; margin-top: 2px; }
 
   /* Mobile/skinny mode: single column, one section per printed page,
      regardless of the on-screen responsive state at the moment "Export
@@ -1153,7 +1248,7 @@ body.print-mode-grid .card .meta-col {
      width, which has nothing to do with which print button was pressed. */
   body.print-mode-mobile .grid { grid-template-columns: 1fr !important; }
   body.print-mode-mobile .card-body { flex-direction: column !important; }
-  body.print-mode-mobile .box-list { border-right: none !important; border-bottom: 1px solid var(--border); }
+  body.print-mode-mobile .box-list { border-right: none !important; border-bottom: 1px solid var(--md-color-outline-variant); }
   body.print-mode-mobile .meta-col { flex: 1 1 auto !important; }
   body.print-mode-mobile .grid > .card:not(:last-child) {
     break-after: page; page-break-after: always;
@@ -1177,10 +1272,10 @@ body.print-mode-grid .card .meta-col {
    than it costs here. fixupMetaChipLayout (app.js) still measures the
    real column count itself, so the usual per-row inline/stacked overflow
    protection keeps working at 2 columns same as it always did. */
-body.print-mode-grid .meta-col { grid-template-columns: repeat(2, minmax(0, 1fr)); font-size: 10px; gap: 3px; padding: 6px; }
+body.print-mode-grid .meta-col { grid-template-columns: repeat(2, minmax(0, 1fr)); font-size: var(--md-type-label-xs); gap: 3px; padding: 6px; }
 body.print-mode-grid .meta-row { padding: 2px 4px; }
-body.print-mode-grid .meta-label { font-size: 9px; }
-body.print-mode-grid .meta-value { font-size: 11px; }
+body.print-mode-grid .meta-label { font-size: var(--md-type-label-xxs); }
+body.print-mode-grid .meta-value { font-size: var(--md-type-label-sm); }
 /* Real compacting of the cabinet list too -- not a visual scale-down
    (see fitContentToPage's zoom, which is only a fallback for whatever
    still doesn't fit after this), an ACTUAL smaller row height/type scale,
@@ -1190,9 +1285,9 @@ body.print-mode-grid .meta-value { font-size: 11px; }
    history) -- content that's genuinely this size to begin with sidesteps
    that entirely, rather than depending on it working. */
 body.print-mode-grid { --row-h: 18px; }
-body.print-mode-grid .box-row { font-size: 10px; padding: 0 6px; }
+body.print-mode-grid .box-row { font-size: var(--md-type-label-xs); padding: 0 6px; }
 body.print-mode-grid .box-cell { padding: 0 1px; }
-body.print-mode-grid .card-title { font-size: 12px; padding: 5px 6px; }
+body.print-mode-grid .card-title { font-size: var(--md-type-label-md); padding: 5px 6px; }
 body.print-mode-grid .value-chip,
-body.print-mode-grid .ckt-input { padding: 1px 3px; font-size: 11px; }
-body.print-mode-grid .splay-value { width: 26px; height: 18px; font-size: 9px; }
+body.print-mode-grid .ckt-input { padding: 1px 3px; font-size: var(--md-type-label-sm); }
+body.print-mode-grid .splay-value { width: 26px; height: 18px; font-size: var(--md-type-label-xxs); }
