@@ -122,15 +122,26 @@
    to avoid a flash of the wrong theme on load -- it can only safely touch
    document.documentElement at that point.
 
-   Every color role is overridden here except --md-color-chip-fixed/
-   -chip-fixed-text (every per-box data chip -- Cab#/Splay/CKT -- stays a
-   guaranteed white-chip/black-text regardless of context, the entire
-   reason those tokens exist separately from -surface/-on-surface in the
-   first place -- flipping them for dark mode would defeat that) and
-   --md-color-scrim (a dimming overlay, equally correct under either
-   theme). Primary-role values reuse the already-reserved --md-tone-* ramp
-   anchored to this brand's own hue; surface-role neutrals are hand-picked
-   instead, since that ramp is a tinted-primary ramp, not a neutral one. */
+   Every color role is overridden here except --md-color-scrim (a dimming
+   overlay, equally correct under either theme). Primary-role values reuse
+   the already-reserved --md-tone-* ramp anchored to this brand's own hue;
+   surface-role neutrals are hand-picked instead, since that ramp is a
+   tinted-primary ramp, not a neutral one.
+
+   --md-color-chip-fixed/-chip-fixed-text (every per-box data chip --
+   Cab#/Splay/CKT) DOES get a dark-mode value, unlike the rest of this
+   file's design -- it's still a fixed pair unrelated to the row's own
+   arbitrary hang/circuit color (that guarantee is what these tokens exist
+   for, see the .value-chip/.splay-value comments below, and it still
+   holds: the chip is its own small opaque box, so the row color behind it
+   is irrelevant to the chip's own internal contrast either way), but a
+   literal white box no longer reads as "guaranteed legible," it reads as
+   a glaring hole in an otherwise dark page. Pointing it at
+   -surface-variant/-on-surface instead keeps the guarantee (still a
+   fixed pair, still decoupled from row color) while looking like part of
+   the theme -- see the @media print safeguard further down, which now
+   has to force these back to literal white/black too, since dark mode
+   made them diverge from light mode for the first time. */
 :root.theme-dark {
   --md-color-background: #14151c;
   --md-color-surface: #1c1e27;
@@ -152,6 +163,8 @@
   --md-color-error-outline: #5c231d;
 
   --md-color-surface-translucent: rgba(28, 30, 39, 0.85);
+  --md-color-chip-fixed: var(--md-color-surface-variant);
+  --md-color-chip-fixed-text: var(--md-color-on-surface);
 
   /* Dark-tinted shadows (rgba(20,22,40,x), used the rest of the time)
      read as nearly invisible dark-on-dark once the surface under them is
@@ -435,6 +448,27 @@ body.view-only #hangsPanel {
    build their own rows via .swatchRow), so this needs its own gap. */
 #pageDesignPanel { display: flex; flex-direction: column; gap: 10px; }
 .upload-label input[type=file] { font-size: var(--md-type-label-md); max-width: 100%; color: var(--md-color-on-surface); }
+/* The native file input's own button (labelled "Choose File"/"Browse…"
+   depending on browser) renders as raw unstyled OS chrome by default --
+   stark white/grey regardless of theme, since it's not part of the page's
+   own DOM the way every other button here is. ::file-selector-button is
+   the standardized, cross-browser pseudo-element for it (Chrome 89+/
+   Firefox 82+/Safari 15.4+, well within this file's existing @container-
+   query floor); ::-webkit-file-upload-button is the older WebKit-only
+   alias, kept alongside for the same browsers under slightly older
+   versions. Styled to match every other .btn-ghost-ish button in the
+   sidebar rather than introducing a new button look. */
+.upload-label input[type=file]::file-selector-button,
+.upload-label input[type=file]::-webkit-file-upload-button {
+  margin-right: 8px; padding: 6px 12px; cursor: pointer;
+  border: 1px solid var(--md-color-outline); border-radius: var(--md-shape-full);
+  background: var(--md-color-surface); color: var(--md-color-on-surface);
+  font-size: var(--md-type-label-md); font-weight: 600;
+}
+.upload-label input[type=file]::file-selector-button:hover,
+.upload-label input[type=file]::-webkit-file-upload-button:hover {
+  background: color-mix(in srgb, var(--md-color-on-surface) 8%, var(--md-color-surface));
+}
 .field-inline input[type=number] { width: 70px; height: 32px; font-size: var(--md-type-body-md); }
 .field-checkbox {
   font-size: var(--md-type-label-md); font-weight: 600; color: var(--md-color-on-surface-variant);
@@ -1306,9 +1340,13 @@ body.print-mode-grid .card .meta-col {
      :root.theme-dark's higher specificity (custom properties don't fall
      back to an ancestor's value once an element has its own declaration,
      so this only works because it's the SAME element, not a parent).
-     --md-color-chip-fixed/-chip-fixed-text and --md-color-scrim are
-     absent on purpose -- :root.theme-dark never overrides them either, so
-     there's nothing here to undo. */
+     --md-color-scrim is absent on purpose -- :root.theme-dark never
+     overrides it, so there's nothing here to undo. --md-color-chip-fixed/
+     -chip-fixed-text DO need forcing back here now, unlike everything
+     else that stayed a literal white/black in dark mode -- :root.theme-
+     dark points them at -surface-variant/-on-surface instead (see that
+     block's own comment), so without this override a dark-mode PDF
+     export would print its Cab#/Splay/CKT chips dark too. */
   :root {
     --md-color-background: #f1f2f6 !important;
     --md-color-surface: #ffffff !important;
@@ -1327,6 +1365,8 @@ body.print-mode-grid .card .meta-col {
     --md-color-on-error-container: #b42318 !important;
     --md-color-error-outline: #fbd5d1 !important;
     --md-color-surface-translucent: rgba(255, 255, 255, 0.92) !important;
+    --md-color-chip-fixed: #ffffff !important;
+    --md-color-chip-fixed-text: #000000 !important;
   }
   /* Without this, Chrome/Safari/Firefox all silently drop every
      background-color (hang stripes, circuit-set stripes, row swatches,
