@@ -1297,6 +1297,7 @@ function render() {
   document.getElementById('showTitleInput').value = pageHeader.title || '';
   document.getElementById('showVenueInput').value = pageHeader.venue || '';
   document.getElementById('showDateInput').value = pageHeader.date || '';
+  document.getElementById('showAddressInput').value = pageHeader.address || '';
 
   // Only ever visible in @media print -- see .print-header in style.css.
   const printHeader = document.getElementById('printHeader');
@@ -1307,9 +1308,11 @@ function render() {
     t.textContent = pageHeader.title;
     printHeader.appendChild(t);
   }
-  // "Venue - Date" -- a dash, not the bullet voMeta below uses, per the
-  // requested PDF header format.
-  const printMetaBits = [pageHeader.venue, pageHeader.date].filter(Boolean).join(' - ');
+  // "Venue - Address - Date" -- a dash, not the bullet voMeta below uses,
+  // per the requested PDF header format. Address included alongside
+  // venue/date since it's exactly the load-in/logistics detail a printed
+  // sheet should carry, not just an on-screen convenience.
+  const printMetaBits = [pageHeader.venue, pageHeader.address, pageHeader.date].filter(Boolean).join(' - ');
   if (printMetaBits) {
     const m = document.createElement('div');
     m.className = 'ph-meta';
@@ -1323,7 +1326,7 @@ function render() {
   // separator (unlike the print header's dash above) -- unrelated to the
   // PDF format, this is the compact on-screen display for a different
   // context, and changing its separator wasn't asked for.
-  const voMetaBits = [pageHeader.venue, pageHeader.date].filter(Boolean).join(' • ');
+  const voMetaBits = [pageHeader.venue, pageHeader.address, pageHeader.date].filter(Boolean).join(' • ');
   document.getElementById('voTitle').textContent = pageHeader.title || '';
   document.getElementById('voMeta').textContent = voMetaBits;
 
@@ -3003,6 +3006,92 @@ function bindShowField(inputId, key) {
 bindShowField('showTitleInput', 'title');
 bindShowField('showVenueInput', 'venue');
 bindShowField('showDateInput', 'date');
+// Address also supports plain manual typing/editing via this same path
+// (in case a search result needs correcting, or the venue never shows up
+// in search at all) -- picking a search result below is just a second,
+// faster way to fill it in, not the only way.
+bindShowField('showAddressInput', 'address');
+
+const VENUE_SEARCH_MIN_QUERY_LEN = 3;
+// Explicit submit (Enter or the button), not search-as-you-type -- OSM's
+// Nominatim (which /api/venue-search proxies, see app.py) explicitly
+// disallows client-side autocomplete in its usage policy, and this is a
+// deliberate on-demand search either way.
+function openVenueSearch() {
+  const wrap = document.querySelector('.show-venue-search-wrap');
+  const existing = wrap.querySelector('.venue-search-dropdown');
+  if (existing) { existing.remove(); return; }
+  const query = document.getElementById('showVenueInput').value.trim();
+  if (query.length < VENUE_SEARCH_MIN_QUERY_LEN) return;
+  const dropdown = document.createElement('div');
+  dropdown.className = 'venue-search-dropdown';
+  const loading = document.createElement('div');
+  loading.className = 'venue-search-empty';
+  loading.textContent = 'Searching…';
+  dropdown.appendChild(loading);
+  wrap.appendChild(dropdown);
+  fetch(`/api/venue-search?q=${encodeURIComponent(query)}`)
+    .then(r => r.json())
+    .then(data => {
+      // The dropdown may have already been closed (click-outside, or a
+      // second search fired) by the time this resolves -- nothing left
+      // to fill in.
+      if (!dropdown.isConnected) return;
+      dropdown.innerHTML = '';
+      const results = (data && data.results) || [];
+      if (!results.length) {
+        const empty = document.createElement('div');
+        empty.className = 'venue-search-empty';
+        empty.textContent = data && data.error ? 'Venue search unavailable.' : 'No matches.';
+        dropdown.appendChild(empty);
+        return;
+      }
+      results.forEach(result => {
+        const opt = document.createElement('button');
+        opt.type = 'button';
+        opt.className = 'venue-search-option';
+        opt.textContent = result.name;
+        if (result.address_short) {
+          const sub = document.createElement('span');
+          sub.className = 'venue-search-option-sub';
+          sub.textContent = result.address_short;
+          opt.appendChild(sub);
+        }
+        opt.addEventListener('click', e => {
+          e.stopPropagation();
+          selectVenueResult(result);
+          dropdown.remove();
+        });
+        dropdown.appendChild(opt);
+      });
+    })
+    .catch(() => {
+      if (!dropdown.isConnected) return;
+      dropdown.innerHTML = '';
+      const empty = document.createElement('div');
+      empty.className = 'venue-search-empty';
+      empty.textContent = 'Venue search unavailable.';
+      dropdown.appendChild(empty);
+    });
+}
+// Sets STATE directly (not by dispatching a synthetic 'change' event) --
+// bindShowField's own listener only fires from real user interaction with
+// the input, so a programmatic .value assignment wouldn't reach it. This
+// mirrors exactly what that listener does, just for both fields in one
+// save instead of one field per blur.
+function selectVenueResult(result) {
+  if (!STATE) return;
+  STATE.page_header = STATE.page_header || {};
+  STATE.page_header.venue = result.name;
+  STATE.page_header.address = result.address_short || '';
+  document.getElementById('showVenueInput').value = result.name;
+  document.getElementById('showAddressInput').value = result.address_short || '';
+  saveState(false);
+}
+document.getElementById('venueSearchBtn').addEventListener('click', openVenueSearch);
+document.getElementById('showVenueInput').addEventListener('keydown', e => {
+  if (e.key === 'Enter') { e.preventDefault(); openVenueSearch(); }
+});
 document.getElementById('saveBtn').addEventListener('click', () => saveState(true));
 document.getElementById('printGridBtn').addEventListener('click', exportPrintGrid);
 document.getElementById('printMobileBtn').addEventListener('click', exportPrintMobile);
@@ -3109,6 +3198,15 @@ document.addEventListener('click', e => {
 document.addEventListener('click', e => {
   if (e.target.closest('.hid-cable-dropdown, .circuit-set-stripe-editable, .pick-group-badge-editable')) return;
   const open = document.querySelector('.hid-cable-dropdown');
+  if (open) open.remove();
+});
+// Own listener, own class -- deliberately not folded into the one above,
+// which assumes only one .hid-cable-dropdown exists at a time (a single
+// document.querySelector). Keeping these independent means the two
+// dropdowns can never accidentally close each other.
+document.addEventListener('click', e => {
+  if (e.target.closest('.venue-search-dropdown, #venueSearchBtn, #showVenueInput')) return;
+  const open = document.querySelector('.venue-search-dropdown');
   if (open) open.remove();
 });
 document.getElementById('uploadInput').addEventListener('change', e => {

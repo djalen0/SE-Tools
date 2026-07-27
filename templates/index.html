@@ -215,8 +215,20 @@
           <div class="show-info">
             <input id="showTitleInput" class="show-field show-title" type="text" placeholder="Show title" maxlength="120">
             <div class="show-info-line2">
-              <input id="showVenueInput" class="show-field show-venue" type="text" placeholder="Venue" maxlength="120">
+              <!-- Wrapped (position:relative) purely so #venueSearchResults
+                   has a positioning anchor -- see openVenueSearch in
+                   app.js and .venue-search-dropdown in style.css. Enter in
+                   the field or the button both trigger the same search;
+                   picking a result fills both this and #showAddressInput
+                   in one action (see selectVenueResult). -->
+              <div class="show-venue-search-wrap">
+                <input id="showVenueInput" class="show-field show-venue" type="text" placeholder="Venue" maxlength="120">
+                <button id="venueSearchBtn" class="venue-search-btn" type="button" aria-label="Search for this venue">&#128269;</button>
+              </div>
               <input id="showDateInput" class="show-field show-date" type="text" placeholder="Date" maxlength="40">
+            </div>
+            <div class="show-info-line3">
+              <input id="showAddressInput" class="show-field show-address" type="text" placeholder="Address (City, State)" maxlength="120">
             </div>
           </div>
         </div>

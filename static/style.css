@@ -334,8 +334,28 @@ body.menu-open .auth-popover {
 /* Venue and date share one line instead of each getting its own -- see
    .content-header above for why this whole block needed to shrink. */
 .show-info-line2 { display: flex; align-items: baseline; gap: 6px; min-width: 0; }
-.show-info-line2 .show-venue { flex: 1 1 auto; min-width: 0; }
+/* The wrap (not the input directly) is the actual flex item now that the
+   venue field has a search button riding alongside it -- flex/min-width
+   moved here from .show-info-line2 .show-venue, which no longer sits
+   directly in this flex row (see index.html). position:relative gives
+   #venueSearchResults (the results dropdown, see openVenueSearch in
+   app.js) something to anchor to, same pattern .ckt-wrap uses for the
+   Hi-D cable dropdown. */
+.show-venue-search-wrap { display: flex; align-items: center; position: relative; flex: 1 1 auto; min-width: 0; gap: 2px; }
+.show-venue-search-wrap .show-venue { flex: 1 1 auto; min-width: 0; width: auto; }
+.venue-search-btn {
+  flex: 0 0 auto; padding: 2px 5px; font-size: var(--md-type-label-md); line-height: 1;
+  background: transparent; border: none; opacity: 0.55; cursor: pointer;
+}
+.venue-search-btn:hover { opacity: 1; }
+.venue-search-btn:disabled { opacity: 0.3; cursor: not-allowed; }
 .show-info-line2 .show-date { flex: 0 1 auto; min-width: 0; text-align: right; }
+/* Address sits on its own line below Venue/Date -- same compact,
+   borderless, plain-text-not-a-form treatment as .show-info-line2's
+   fields (see .show-info .show-field below), just smaller since it's the
+   least load-bearing of the three at a glance. */
+.show-info-line3 { display: flex; min-width: 0; }
+.show-info-line3 .show-address { font-size: var(--md-type-label-sm); color: var(--md-color-on-surface-variant); font-weight: 600; }
 /* Scoped as ".show-info .show-field" (not just ".show-field") so this
    beats the generic "input[type=text]" rule's border/background/padding
    further down the sheet on specificity, regardless of source order. */
@@ -347,7 +367,27 @@ body.menu-open .auth-popover {
 .show-info .show-field:disabled { opacity: 1; cursor: default; -webkit-text-fill-color: var(--md-color-on-surface); }
 .show-info .show-title { font-size: var(--md-type-title-md); font-weight: 700; letter-spacing: -0.01em; }
 .show-info .show-venue, .show-info .show-date { font-size: var(--md-type-body-sm); color: var(--md-color-on-surface-variant); font-weight: 600; }
-.show-info .show-venue:disabled, .show-info .show-date:disabled { -webkit-text-fill-color: var(--md-color-on-surface-variant); }
+.show-info .show-venue:disabled, .show-info .show-date:disabled, .show-info .show-address:disabled { -webkit-text-fill-color: var(--md-color-on-surface-variant); }
+/* Venue search results -- anchored to .show-venue-search-wrap above, same
+   position:absolute/top:100% pattern as .hid-cable-dropdown, but its own
+   class (not a reuse of that one) so the two dropdowns' independent
+   click-outside-to-close listeners (see openVenueSearch/
+   openTrunkStripeMenu in app.js) can't accidentally close each other --
+   the Hi-D one's closer assumes only one .hid-cable-dropdown exists at a
+   time. */
+.venue-search-dropdown {
+  position: absolute; left: 0; top: 100%; z-index: 20;
+  background: var(--md-color-surface); border: 1px solid var(--md-color-outline); border-radius: var(--md-shape-sm);
+  box-shadow: var(--md-elevation-2); max-height: 240px; overflow-y: auto; min-width: 220px; max-width: 340px;
+}
+.venue-search-option {
+  display: block; width: 100%; text-align: left; padding: 6px 10px;
+  border: none; background: transparent; cursor: pointer;
+  font-size: var(--md-type-label-md); color: var(--md-color-on-surface);
+}
+.venue-search-option:hover { background: var(--md-color-primary-container); }
+.venue-search-option-sub { display: block; font-size: var(--md-type-label-xs); color: var(--md-color-on-surface-variant); }
+.venue-search-empty { padding: 8px 10px; font-size: var(--md-type-label-sm); color: var(--md-color-on-surface-variant); }
 /* Takes over the lock icon's usual fixed top-right corner -- the lock
    itself has moved inline into .content-header on this page (see
    index.html), freeing that corner up. Hidden by default/on mobile

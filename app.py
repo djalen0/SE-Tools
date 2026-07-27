@@ -26,8 +26,12 @@ import re
 import secrets
 import tempfile
 import threading
+import time
+import urllib.parse
+import urllib.request
 from datetime import date as date_cls, timedelta
 from pathlib import Path
+from urllib.error import URLError
 
 from flask import Flask, jsonify, request, render_template, session
 
@@ -101,6 +105,92 @@ def require_login():
 @app.route('/api/auth/status')
 def api_auth_status():
     return jsonify({'authed': bool(session.get('authed'))})
+
+
+# --- Venue search --------------------------------------------------------
+# Proxied through this server (not called directly from the browser) so the
+# outbound request can carry a real, descriptive User-Agent -- Nominatim's
+# usage policy requires "a valid HTTP Referer or User-Agent identifying the
+# application (stock User-Agents as set by http libraries will not do)",
+# and a browser fetch() can't override its own User-Agent header the way a
+# server-side request can. This also means swapping to a paid provider
+# later (an API key that must never reach the browser) is a change to this
+# one route only -- static/app.js only ever talks to /api/venue-search.
+NOMINATIM_SEARCH_URL = 'https://nominatim.openstreetmap.org/search'
+VENUE_SEARCH_USER_AGENT = 'PA-Pinner/1.0 (self-hosted touring pinning-sheet tool)'
+# Nominatim's policy also requires caching results on our side -- a plain
+# dict keyed by the lowercased query is enough; a cache miss just means one
+# redundant outbound request, not a correctness problem, so this doesn't
+# need STATE_LOCK-style locking the way job files do.
+VENUE_SEARCH_CACHE = {}
+VENUE_SEARCH_CACHE_TTL = 3600  # seconds
+VENUE_SEARCH_MIN_QUERY_LEN = 3
+
+# Nominatim returns full state names ("California"), not postal codes --
+# most touring paperwork abbreviates ("CA"), matching the "City, State"
+# format requested for the Address field.
+US_STATE_ABBREV = {
+    'Alabama': 'AL', 'Alaska': 'AK', 'Arizona': 'AZ', 'Arkansas': 'AR', 'California': 'CA',
+    'Colorado': 'CO', 'Connecticut': 'CT', 'Delaware': 'DE', 'District of Columbia': 'DC',
+    'Florida': 'FL', 'Georgia': 'GA', 'Hawaii': 'HI', 'Idaho': 'ID', 'Illinois': 'IL',
+    'Indiana': 'IN', 'Iowa': 'IA', 'Kansas': 'KS', 'Kentucky': 'KY', 'Louisiana': 'LA',
+    'Maine': 'ME', 'Maryland': 'MD', 'Massachusetts': 'MA', 'Michigan': 'MI', 'Minnesota': 'MN',
+    'Mississippi': 'MS', 'Missouri': 'MO', 'Montana': 'MT', 'Nebraska': 'NE', 'Nevada': 'NV',
+    'New Hampshire': 'NH', 'New Jersey': 'NJ', 'New Mexico': 'NM', 'New York': 'NY',
+    'North Carolina': 'NC', 'North Dakota': 'ND', 'Ohio': 'OH', 'Oklahoma': 'OK', 'Oregon': 'OR',
+    'Pennsylvania': 'PA', 'Rhode Island': 'RI', 'South Carolina': 'SC', 'South Dakota': 'SD',
+    'Tennessee': 'TN', 'Texas': 'TX', 'Utah': 'UT', 'Vermont': 'VT', 'Virginia': 'VA',
+    'Washington': 'WA', 'West Virginia': 'WV', 'Wisconsin': 'WI', 'Wyoming': 'WY',
+    'Puerto Rico': 'PR', 'Guam': 'GU',
+}
+
+
+def _format_address_short(addr):
+    locality = addr.get('city') or addr.get('town') or addr.get('village') or addr.get('hamlet') or ''
+    state = addr.get('state', '')
+    if (addr.get('country_code') or '').upper() == 'US':
+        state = US_STATE_ABBREV.get(state, state)
+    parts = [p for p in (locality, state) if p]
+    if parts:
+        return ', '.join(parts)
+    # Nothing city/state-shaped in this result (e.g. a country-level match)
+    # -- fall back to whatever's most specific rather than an empty field.
+    return addr.get('country', '')
+
+
+@app.route('/api/venue-search')
+def api_venue_search():
+    q = (request.args.get('q') or '').strip()
+    if len(q) < VENUE_SEARCH_MIN_QUERY_LEN:
+        return jsonify({'results': []})
+    cache_key = q.lower()
+    cached = VENUE_SEARCH_CACHE.get(cache_key)
+    if cached and time.time() - cached[0] < VENUE_SEARCH_CACHE_TTL:
+        return jsonify({'results': cached[1]})
+    params = urllib.parse.urlencode({'q': q, 'format': 'jsonv2', 'addressdetails': 1, 'limit': 6})
+    req = urllib.request.Request(
+        f'{NOMINATIM_SEARCH_URL}?{params}',
+        headers={'User-Agent': VENUE_SEARCH_USER_AGENT},
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            raw = json.loads(resp.read().decode('utf-8'))
+    except (URLError, TimeoutError, ValueError) as exc:
+        return jsonify({'results': [], 'error': f'Venue search unavailable: {exc}'}), 502
+    results = []
+    for item in raw:
+        addr = item.get('address') or {}
+        display_name = item.get('display_name') or ''
+        results.append({
+            # jsonv2 doesn't reliably expose a clean standalone venue-name
+            # field -- the first segment of display_name is the specific
+            # matched place when searching for a named venue.
+            'name': display_name.split(',')[0].strip() or display_name,
+            'display_name': display_name,
+            'address_short': _format_address_short(addr),
+        })
+    VENUE_SEARCH_CACHE[cache_key] = (time.time(), results)
+    return jsonify({'results': results})
 
 
 @app.route('/api/login', methods=['POST'])
@@ -302,7 +392,7 @@ def build_job(sections, source_name, page_header=None, show=None):
         # typed in; venue stays editable from the sidebar. Viewers see all
         # three as plain text, printed at the top of every PDF export (see
         # the #printHeader block static/app.js's runPrint populates).
-        'page_header': page_header or {'title': '', 'venue': '', 'date': ''},
+        'page_header': page_header or {'title': '', 'venue': '', 'address': '', 'date': ''},
         # Data Tags overrides for THIS Date only (key -> hidden bool) --
         # takes precedence over the Show's own hidden_tags default, but is
         # itself overridable per-hang (see each section's own
@@ -619,7 +709,7 @@ def api_create_date(show_slug):
         root = dates_dir(show_slug)
         existing = {d.name for d in root.iterdir() if d.is_dir()} if root.exists() else set()
         slug = unique_slug(slugify(date_str), existing)
-        job = build_job([], None, page_header={'title': show['name'], 'venue': '', 'date': date_str}, show=show)
+        job = build_job([], None, page_header={'title': show['name'], 'venue': '', 'address': '', 'date': date_str}, show=show)
         save_job(show_slug, slug, job)
     return jsonify({'slug': slug})
 
