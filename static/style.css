@@ -107,6 +107,61 @@
   --md-type-label-xxs: 9px;
 }
 
+/* --- Dark mode ------------------------------------------------------------
+   Toggled via the .theme-dark class theme.js applies to <html>, not
+   <body> -- a deliberate one-off exception to this file's usual body.*
+   state-class convention (body.view-only, body.sidebar-collapsed, etc).
+   Two reasons: the @media print safeguard further down needs to
+   out-cascade this via !important on the very same element, which it
+   could never do against a body-level class (custom properties inherit
+   from the nearest ancestor's OWN declaration -- body having its own
+   value for --md-color-x always wins over whatever :root says, !important
+   or not, because inheritance only applies when an element has no
+   declaration of its own); and a synchronous inline <script> in <head>
+   (see each template) applies this class before <body> even exists yet,
+   to avoid a flash of the wrong theme on load -- it can only safely touch
+   document.documentElement at that point.
+
+   Every color role is overridden here except --md-color-chip-fixed/
+   -chip-fixed-text (every per-box data chip -- Cab#/Splay/CKT -- stays a
+   guaranteed white-chip/black-text regardless of context, the entire
+   reason those tokens exist separately from -surface/-on-surface in the
+   first place -- flipping them for dark mode would defeat that) and
+   --md-color-scrim (a dimming overlay, equally correct under either
+   theme). Primary-role values reuse the already-reserved --md-tone-* ramp
+   anchored to this brand's own hue; surface-role neutrals are hand-picked
+   instead, since that ramp is a tinted-primary ramp, not a neutral one. */
+:root.theme-dark {
+  --md-color-background: #14151c;
+  --md-color-surface: #1c1e27;
+  --md-color-surface-variant: #262a36;
+  --md-color-on-surface: #e7e8ee;
+  --md-color-on-surface-variant: #a4a8b8;
+  --md-color-outline: #565b6e;
+  --md-color-outline-variant: #363a48;
+
+  --md-color-primary: var(--md-tone-80);
+  --md-color-primary-hover: var(--md-tone-70);
+  --md-color-on-primary: var(--md-tone-20);
+  --md-color-primary-container: var(--md-tone-20);
+  --md-color-on-primary-container: var(--md-tone-90);
+
+  --md-color-error: #ff8a80;
+  --md-color-error-container: #3b1410;
+  --md-color-on-error-container: #ffb4a8;
+  --md-color-error-outline: #5c231d;
+
+  --md-color-surface-translucent: rgba(28, 30, 39, 0.85);
+
+  /* Dark-tinted shadows (rgba(20,22,40,x), used the rest of the time)
+     read as nearly invisible dark-on-dark once the surface under them is
+     dark too -- pure-black shadows at higher alpha stay visible against
+     a slightly-lighter dark surface instead. */
+  --md-elevation-1: 0 1px 2px rgba(0, 0, 0, 0.24), 0 4px 14px rgba(0, 0, 0, 0.32);
+  --md-elevation-2: 0 2px 6px rgba(0, 0, 0, 0.32), 0 8px 24px rgba(0, 0, 0, 0.4);
+  --md-elevation-3: 0 4px 10px rgba(0, 0, 0, 0.4), 0 16px 36px rgba(0, 0, 0, 0.48);
+}
+
 * { box-sizing: border-box; }
 
 body {
@@ -185,6 +240,16 @@ body.view-only .content-header .auth-popover { position: fixed; top: 52px; right
   display: flex; align-items: center; padding: 14px 20px; background: var(--md-color-surface);
   border-bottom: 1px solid var(--md-color-outline-variant); box-shadow: var(--md-elevation-1);
 }
+/* Pushes the theme toggle to the row's far right, past the breadcrumb --
+   the only two children .page-topbar has (Home/Show pages only; the Date
+   page's own toggle lives in the sidebar/vo-actions instead, see
+   index.html). margin-right clears .auth-lock-btn's own fixed top-right
+   footprint (36px wide, inset 10px from the viewport edge, z-index:100) --
+   .page-topbar's normal-flow right edge sits at the SAME screen region as
+   that fixed corner icon regardless of where in the DOM either one lives,
+   so without this the two silently overlap and the lock button (painted
+   on top) swallows clicks meant for this one. */
+.theme-toggle-btn { margin-left: auto; margin-right: 46px; }
 
 /* --- App shell / sidebar menu -------------------------------------------
    Mobile (default): the sidebar is an off-canvas popup, hidden until the
@@ -447,7 +512,7 @@ button {
 button:hover {
   background: #f6f7fb; /* fallback for browsers without color-mix() */
   background: color-mix(in srgb, var(--md-color-on-surface) 8%, var(--md-color-surface));
-  border-color: #b7bcca;
+  border-color: var(--md-color-outline);
 }
 button:active {
   background: #eceefb; /* fallback for browsers without color-mix() */
@@ -711,7 +776,16 @@ input[type=text], input[type=number] {
 .field-model { flex: 1.6; max-width: 150px; }
 .ckt-input {
   width: 44px; height: 32px; text-align: center; font-size: var(--md-type-body-md); font-weight: 800;
-  border: 1px solid var(--md-color-outline); border-radius: var(--md-shape-sm); background: var(--md-color-chip-fixed); color: var(--md-color-chip-fixed-text) !important;
+  border: 1px solid var(--md-color-outline); border-radius: var(--md-shape-sm);
+  /* !important on both -- the generic input[type=text] rule further up
+     this file is an element+attribute selector, which actually beats a
+     single class on specificity (0,1,1 vs 0,1,0) regardless of source
+     order, so without this .ckt-input's own background would silently
+     lose to it. Invisible in light mode (both resolve to the same white
+     there), but the two diverge in dark mode -- --md-color-chip-fixed
+     stays white on purpose, --md-color-surface goes dark -- which is
+     what exposed this. */
+  background: var(--md-color-chip-fixed) !important; color: var(--md-color-chip-fixed-text) !important;
 }
 /* Splay is the most important value on the card, so its column is
    narrow (less horizontal space spent on it) but the cell itself is
@@ -1224,6 +1298,36 @@ body.print-mode-grid .card .meta-col {
    scoped to a class selector, so that part is injected as its own
    <style> tag by the same JS functions instead of living here. */
 @media print {
+  /* Printed/PDF output must always be light/print-friendly regardless of
+     on-screen dark mode -- these are physical documents for a rigger's
+     paper binder. Targets :root, matching exactly where .theme-dark's own
+     declarations live (<html>, see theme.js) -- both then apply to the
+     same element, so !important alone decides the winner regardless of
+     :root.theme-dark's higher specificity (custom properties don't fall
+     back to an ancestor's value once an element has its own declaration,
+     so this only works because it's the SAME element, not a parent).
+     --md-color-chip-fixed/-chip-fixed-text and --md-color-scrim are
+     absent on purpose -- :root.theme-dark never overrides them either, so
+     there's nothing here to undo. */
+  :root {
+    --md-color-background: #f1f2f6 !important;
+    --md-color-surface: #ffffff !important;
+    --md-color-surface-variant: #f6f7fb !important;
+    --md-color-on-surface: #1c2030 !important;
+    --md-color-on-surface-variant: #6b7180 !important;
+    --md-color-outline: #d1d5e0 !important;
+    --md-color-outline-variant: #e3e5ec !important;
+    --md-color-primary: #4f46e5 !important;
+    --md-color-primary-hover: #4338ca !important;
+    --md-color-on-primary: #ffffff !important;
+    --md-color-primary-container: #eef0fe !important;
+    --md-color-on-primary-container: #4f46e5 !important;
+    --md-color-error: #b42318 !important;
+    --md-color-error-container: #fef1f0 !important;
+    --md-color-on-error-container: #b42318 !important;
+    --md-color-error-outline: #fbd5d1 !important;
+    --md-color-surface-translucent: rgba(255, 255, 255, 0.92) !important;
+  }
   /* Without this, Chrome/Safari/Firefox all silently drop every
      background-color (hang stripes, circuit-set stripes, row swatches,
      circuit-set-stripe, row fill) unless the person printing happens to

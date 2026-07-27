@@ -6,6 +6,17 @@
 <title>Pinning Sheet Editor</title>
 <link rel="manifest" href="{{ url_for('static', filename='manifest.json') }}">
 <meta name="theme-color" content="#4f46e5">
+<script>
+(function () {
+  try {
+    var KEY = 'pa-pinner-theme-dark';
+    var stored = localStorage.getItem(KEY);
+    var dark = stored === null ? window.matchMedia('(prefers-color-scheme: dark)').matches : stored === '1';
+    document.documentElement.classList.toggle('theme-dark', dark);
+    if (dark) document.querySelector('meta[name=theme-color]').setAttribute('content', '#14151c');
+  } catch (e) {}
+})();
+</script>
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="Pinning Sheets">
 <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
@@ -49,6 +60,7 @@
     <div class="vo-actions">
       <button id="dataTagsToggleBtnVO" class="btn btn-ghost vo-data-tags-btn" type="button">Data tags&hellip;</button>
       <button id="printMobileBtnVO" class="btn btn-ghost vo-data-tags-btn" type="button">Export PDF&hellip;</button>
+      <button id="themeToggleBtnVO" class="btn btn-ghost vo-data-tags-btn" type="button"></button>
     </div>
   </div>
   <aside class="sidebar" id="sidebar">
@@ -63,6 +75,16 @@
         </nav>
         <button id="menuCloseBtn" class="menu-close" aria-label="Close menu">&times;</button>
       </div>
+    </div>
+    <!-- A personal display preference, not shared job data -- same as
+         Data tags below, never locked for view-only visitors (see the
+         body.view-only rules in style.css, which don't mention this id).
+         themeToggleBtnVO above is this same feature's other entry point,
+         for a mobile view-only visitor who has no sidebar to reach this
+         from at all -- see theme.js, which wires up whichever of the two
+         exist on the current page and keeps them in sync. -->
+    <div class="toolbar-actions">
+      <button id="themeToggleBtn" class="btn btn-ghost" type="button"></button>
     </div>
     <!-- Rename/reorder each hang -- a shared-job edit like Colors/Circuit
          numbering, so it's locked for view-only visitors too. See
@@ -220,6 +242,7 @@
 <span id="viewOnlyBanner" class="badge-view-only">View only</span>
 
 <script src="{{ url_for('static', filename='auth.js') }}"></script>
+<script src="{{ url_for('static', filename='theme.js') }}"></script>
 <script src="{{ url_for('static', filename='app.js') }}"></script>
 <script>
 if ('serviceWorker' in navigator) {
