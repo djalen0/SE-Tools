@@ -488,6 +488,19 @@ body.view-only #hangsPanel {
    build their own rows via .swatchRow), so this needs its own gap. */
 #pageDesignPanel { display: flex; flex-direction: column; gap: 10px; }
 .upload-label input[type=file] { font-size: var(--md-type-label-md); max-width: 100%; color: var(--md-color-on-surface); }
+.upload-info { display: flex; flex-direction: column; gap: 2px; max-width: 100%; min-width: 0; }
+.upload-filename {
+  font-size: var(--md-type-label-sm); font-weight: 400; color: var(--md-color-on-surface-variant);
+  max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+/* The filename itself (not the short upload-time line below it) can run
+   long enough to get clipped -- the `title` attribute already gives a
+   native browser tooltip on hover, but that's slow to appear and easy to
+   miss, so hovering also un-clips it in place (wraps instead of ellipsis)
+   for an immediate, complete look at the full name. */
+#uploadedFileName:hover {
+  white-space: normal; overflow: visible; word-break: break-word; cursor: default;
+}
 /* The native file input's own button (labelled "Choose File"/"Browse…"
    depending on browser) renders as raw unstyled OS chrome by default --
    stark white/grey regardless of theme, since it's not part of the page's

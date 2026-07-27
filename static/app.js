@@ -93,8 +93,8 @@ let openHangDefineSection = null;
 // card-width-driven placement" -- see the "Data Bar mode" CSS rules).
 // Same two-level cascade as Data Tags, minus the per-hang card level (this
 // is a whole-Date layout choice, not something that makes sense to vary
-// hang to hang).
-const DATA_BAR_MODES = ['side-left', 'side-right', 'bottom', 'hidden'];
+// hang to hang). DATA_BAR_MODES itself lives in config-fields.js, shared
+// with show.js.
 const DATA_BAR_LABELS = {'side-left': 'side (left)', 'side-right': 'side (right)', 'bottom': 'bottom', 'hidden': 'hidden'};
 function resolveDataBarMode() {
   if (STATE && DATA_BAR_MODES.includes(STATE.data_bar_mode_override)) return STATE.data_bar_mode_override;
@@ -246,9 +246,8 @@ function trueTrimValue(raw, burnFt) {
 // Trim display format -- decimal feet (default) or feet/inches -- a
 // Show-wide default with a per-Date override (no per-hang level, this is a
 // standing SE preference, not something that varies hang to hang). Same
-// null-cascade convention as resolveDataBarMode above.
-const TRIM_UNIT_FORMATS = ['decimal', 'feet_inches'];
-const TRIM_INCHES_PRECISIONS = ['whole', 'half', 'quarter'];
+// null-cascade convention as resolveDataBarMode above. TRIM_UNIT_FORMATS/
+// TRIM_INCHES_PRECISIONS live in config-fields.js, shared with show.js.
 function resolveTrimUnitFormat() {
   if (STATE && TRIM_UNIT_FORMATS.includes(STATE.trim_unit_format_override)) return STATE.trim_unit_format_override;
   if (SHOW_META && TRIM_UNIT_FORMATS.includes(SHOW_META.trim_unit_format)) return SHOW_META.trim_unit_format;
@@ -1276,9 +1275,22 @@ function render() {
     document.getElementById('dataTagsPanel').innerHTML = '';
     document.getElementById('dataBarPanel').innerHTML = '';
     document.getElementById('hangsPanel').innerHTML = '';
+    document.getElementById('uploadedFileName').textContent = '';
+    document.getElementById('uploadedFileTime').textContent = '';
     applyViewOnlyLock();
     return;
   }
+  // Stays under the upload button until the next upload replaces it --
+  // source_file/source_file_uploaded_at are set server-side by build_job()
+  // on every upload (see api_upload in app.py) and persist in job.json, so
+  // a reload doesn't lose them the way the old flashStatus-only "Loaded X"
+  // message did. The timestamp is stored as UTC ISO 8601 and formatted
+  // into the visitor's own local time/locale here rather than server-side.
+  document.getElementById('uploadedFileName').textContent = STATE.source_file || '';
+  document.getElementById('uploadedFileName').title = STATE.source_file || '';
+  document.getElementById('uploadedFileTime').textContent = STATE.source_file_uploaded_at
+    ? 'Uploaded ' + new Date(STATE.source_file_uploaded_at).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })
+    : '';
   document.getElementById('cardsPerRow').value = STATE.cards_per_row;
   document.getElementById('stripPairLabelsInput').checked = !!STATE.strip_pair_labels;
   // Cards-per-row only means anything when every hang is laid out at
@@ -2042,7 +2054,7 @@ function renderDataBarPanel() {
   panel.appendChild(note);
 
   const current = STATE && DATA_BAR_MODES.includes(STATE.data_bar_mode_override) ? STATE.data_bar_mode_override : null;
-  [[null, 'Default'], ['side-left', 'Side (left)'], ['side-right', 'Side (right)'], ['bottom', 'Bottom'], ['hidden', 'Hidden']].forEach(([value, label]) => {
+  [[null, 'Default'], ...DATA_BAR_MODE_OPTIONS].forEach(([value, label]) => {
     const row = document.createElement('label');
     row.className = 'swatchRow';
     const radio = document.createElement('input');
@@ -2071,7 +2083,7 @@ function renderTrimUnitsPanel() {
   panel.appendChild(note);
 
   const currentFormat = STATE && TRIM_UNIT_FORMATS.includes(STATE.trim_unit_format_override) ? STATE.trim_unit_format_override : null;
-  [[null, 'Default'], ['decimal', 'Decimal feet'], ['feet_inches', 'Feet & inches']].forEach(([value, label]) => {
+  [[null, 'Default'], ...TRIM_UNIT_FORMAT_OPTIONS].forEach(([value, label]) => {
     const row = document.createElement('label');
     row.className = 'swatchRow';
     const radio = document.createElement('input');
@@ -2093,7 +2105,7 @@ function renderTrimUnitsPanel() {
     precisionLabel.textContent = 'Round inches to:';
     panel.appendChild(precisionLabel);
     const currentPrecision = STATE && TRIM_INCHES_PRECISIONS.includes(STATE.trim_inches_precision_override) ? STATE.trim_inches_precision_override : null;
-    [[null, 'Default'], ['whole', 'Whole inch'], ['half', 'Half inch'], ['quarter', 'Quarter inch']].forEach(([value, label]) => {
+    [[null, 'Default'], ...TRIM_INCHES_PRECISION_OPTIONS].forEach(([value, label]) => {
       const row = document.createElement('label');
       row.className = 'swatchRow';
       const radio = document.createElement('input');
@@ -2207,124 +2219,31 @@ function appendResetToShowDefaultButton(panel) {
   panel.appendChild(btn);
 }
 
+// Rendered from the shared field list in config-fields.js (FLAT_FIELD_GROUPS
+// .colors), the same one show.js's renderConfigColorsOptions uses for the
+// Show-wide default -- so a field added there exists here too.
 function renderColorPanel() {
   const panel = document.getElementById('colorPanel');
   const cfg = STATE.circuit_color_config || (STATE.circuit_color_config = {enabled:false, show_row_fill:true, circuit_colors:[], cycle_length:4, hang_colors:[], circuit_set_enabled:false, circuit_set_colors:[], numbering_mode:'normal', hid_bundle_size:4, breakout_cable_name:'Trunk Cable', ink_friendly_patterns:false});
   panel.innerHTML = '';
   appendResetToShowDefaultButton(panel);
-
-  const enabledRow = document.createElement('div');
-  enabledRow.className = 'swatchRow';
-  const enabledCb = document.createElement('input');
-  enabledCb.type = 'checkbox';
-  enabledCb.checked = !!cfg.enabled;
-  enabledCb.addEventListener('change', e => { cfg.enabled = e.target.checked; render(); saveState(false); });
-  enabledRow.appendChild(enabledCb);
-  enabledRow.appendChild(document.createTextNode(' Enable circuit coloring'));
-  panel.appendChild(enabledRow);
-
-  // A fully-colored row per box can look visually "busy" on a rig with
-  // lots of circuits -- this lets the row-wide paint be turned off
-  // without giving up the underlying circuit color assignments/config
-  // (which the CKT chip color-set stripe, hang stripe, etc. don't need
-  // this to be on for anyway).
-  const rowFillRow = document.createElement('div');
-  rowFillRow.className = 'swatchRow';
-  const rowFillCb = document.createElement('input');
-  rowFillCb.type = 'checkbox';
-  rowFillCb.checked = cfg.show_row_fill !== false;
-  rowFillCb.addEventListener('change', e => { cfg.show_row_fill = e.target.checked; render(); saveState(false); });
-  rowFillRow.appendChild(rowFillCb);
-  rowFillRow.appendChild(document.createTextNode(' Show color across whole row'));
-  panel.appendChild(rowFillRow);
-
-  // Adds a pattern (stripes/dots/plaid) alongside every color below --
-  // color alone doesn't survive a black & white print/PDF, so this gives
-  // circuits/hangs/circuit-sets a second way to tell apart that still
-  // works with no color at all. See INK_PATTERN_COUNT/.ink-pattern-N.
-  const inkRow = document.createElement('div');
-  inkRow.className = 'swatchRow';
-  const inkCb = document.createElement('input');
-  inkCb.type = 'checkbox';
-  inkCb.checked = !!cfg.ink_friendly_patterns;
-  inkCb.addEventListener('change', e => { cfg.ink_friendly_patterns = e.target.checked; render(); saveState(false); });
-  inkRow.appendChild(inkCb);
-  inkRow.appendChild(document.createTextNode(' Use ink-friendly patterns (for black & white printing)'));
-  panel.appendChild(inkRow);
-
-  const paletteLabel = document.createElement('div');
-  paletteLabel.className = 'panel-label';
-  paletteLabel.textContent = 'Circuit colors';
-  panel.appendChild(paletteLabel);
-  const paletteGrid = document.createElement('div');
-  paletteGrid.className = 'swatch-grid';
-  (cfg.circuit_colors || []).forEach((hex, i) => {
-    const item = document.createElement('div');
-    item.className = 'swatch-item';
-    const inp = document.createElement('input');
-    inp.type = 'color';
-    inp.value = argbToCss(hex) || '#cccccc';
-    inp.addEventListener('change', e => { cfg.circuit_colors[i] = cssToArgb(e.target.value); render(); saveState(false); });
-    item.appendChild(inp);
-    const rm = document.createElement('button');
-    rm.textContent = 'x';
-    rm.addEventListener('click', () => { cfg.circuit_colors.splice(i,1); render(); saveState(false); });
-    item.appendChild(rm);
-    paletteGrid.appendChild(item);
-  });
-  panel.appendChild(paletteGrid);
-  const addColorBtn = document.createElement('button');
-  addColorBtn.textContent = '+ color';
-  addColorBtn.addEventListener('click', () => { (cfg.circuit_colors = cfg.circuit_colors || []).push('FFCCCCCC'); render(); saveState(false); });
-  panel.appendChild(addColorBtn);
-
-  const cycleRow = document.createElement('div');
-  cycleRow.className = 'swatchRow';
-  cycleRow.appendChild(document.createTextNode('Repeats after N colors:'));
-  const cycleInput = document.createElement('input');
-  cycleInput.type = 'number';
-  cycleInput.min = 1;
-  cycleInput.value = cfg.cycle_length || 4;
-  cycleInput.addEventListener('change', e => { cfg.cycle_length = parseInt(e.target.value) || 1; render(); saveState(false); });
-  cycleRow.appendChild(cycleInput);
-  panel.appendChild(cycleRow);
-
-  const hangHeader = document.createElement('div');
-  hangHeader.textContent = 'Hang identity stripes (matched against each card\'s title):';
-  panel.appendChild(hangHeader);
-  (cfg.hang_colors || []).forEach((entry, i) => {
-    const row = document.createElement('div');
-    row.className = 'swatchRow';
-    const matchInp = document.createElement('input');
-    matchInp.type = 'text';
-    matchInp.placeholder = 'e.g. side';
-    matchInp.value = entry.match || '';
-    matchInp.addEventListener('change', e => { entry.match = e.target.value; saveState(false); });
-    row.appendChild(matchInp);
-    const colorInp = document.createElement('input');
-    colorInp.type = 'color';
-    colorInp.value = argbToCss(entry.fill) || '#ffffff';
-    colorInp.addEventListener('change', e => { entry.fill = cssToArgb(e.target.value); render(); saveState(false); });
-    row.appendChild(colorInp);
-    const rm = document.createElement('button');
-    rm.textContent = 'x';
-    rm.addEventListener('click', () => { cfg.hang_colors.splice(i,1); render(); saveState(false); });
-    row.appendChild(rm);
-    panel.appendChild(row);
-  });
-  const addHangBtn = document.createElement('button');
-  addHangBtn.textContent = '+ hang stripe rule';
-  addHangBtn.addEventListener('click', () => { (cfg.hang_colors = cfg.hang_colors || []).push({match:'', fill:'FFFFFFFF'}); render(); saveState(false); });
-  panel.appendChild(addHangBtn);
+  const fieldsContainer = document.createElement('div');
+  panel.appendChild(fieldsContainer);
+  renderFlatFieldList(fieldsContainer, FLAT_FIELD_GROUPS.colors, cfg, () => { render(); saveState(false); });
 }
 
 // Brand-agnostic circuit breakout numbering lives in its own panel/button,
 // separate from circuit/hang colors -- it's a physical-hardware convention
 // (which brand's breakout cable you're plugging into), not a visual one.
+// Rendered from the shared field list in config-fields.js (FLAT_FIELD_GROUPS
+// .numbering), the same one show.js's renderConfigNumberingOptions uses for
+// the Show-wide default -- so "Label CKT as"/"Default leg order" can't go
+// missing from one surface again. The afterChange hook below reproduces
+// this page's own live behavior (actually converting STATE.sections'
+// circuit-number text), which show.js has no sections to do.
 function renderNumberingPanel() {
   const panel = document.getElementById('numberingPanel');
   const cfg = STATE.circuit_color_config || (STATE.circuit_color_config = {enabled:false, show_row_fill:true, circuit_colors:[], cycle_length:4, hang_colors:[], circuit_set_enabled:false, circuit_set_colors:[], numbering_mode:'normal', hid_bundle_size:4, breakout_cable_name:'Trunk Cable', ink_friendly_patterns:false});
-  const cableName = cfg.breakout_cable_name || 'Trunk Cable';
   panel.innerHTML = '';
   appendResetToShowDefaultButton(panel);
 
@@ -2332,157 +2251,23 @@ function renderNumberingPanel() {
   intro.textContent = 'Circuit breakout numbering (which brand of breakout cable this rig uses):';
   panel.appendChild(intro);
 
-  // Every brand calls this cable something different -- Cohesion says
-  // "Hi-D", some crews just say "Socapex" or "NL8" -- so the label is
-  // free text rather than a fixed brand list, and every other control on
-  // this panel reads from it instead of hardcoding a name.
-  const nameRow = document.createElement('div');
-  nameRow.className = 'swatchRow';
-  nameRow.appendChild(document.createTextNode('Breakout cable name:'));
-  const nameInput = document.createElement('input');
-  nameInput.type = 'text';
-  nameInput.value = cableName;
-  nameInput.placeholder = 'Trunk Cable / Socapex / NL8...';
-  nameInput.addEventListener('change', e => {
-    cfg.breakout_cable_name = e.target.value.trim() || 'Trunk Cable';
-    render();
-    saveState(false);
-  });
-  nameRow.appendChild(nameInput);
-  panel.appendChild(nameRow);
-
-  // Which label the CKT column shows, as a plain choice rather than a
-  // "Convert to X" / "Convert back to normal" toggle button whose own
-  // label kept changing depending on the current state -- that read as an
-  // action to take, not a setting to look at, and was confusing to tell
-  // apart from the leg-order select right below it. A <select> just shows
-  // the current choice plumbing, always.
-  const numberingModeRow = document.createElement('div');
-  numberingModeRow.className = 'swatchRow';
-  numberingModeRow.appendChild(document.createTextNode('Label CKT as:'));
-  const modeSelect = document.createElement('select');
-  const actualOpt = document.createElement('option');
-  actualOpt.value = 'normal';
-  actualOpt.textContent = 'Actual circuit number';
-  const breakoutOpt = document.createElement('option');
-  breakoutOpt.value = 'hid';
-  breakoutOpt.textContent = `${cableName} #`;
-  modeSelect.appendChild(actualOpt);
-  modeSelect.appendChild(breakoutOpt);
-  modeSelect.value = cfg.numbering_mode === 'hid' ? 'hid' : 'normal';
-  modeSelect.addEventListener('change', e => {
-    if (e.target.value === 'hid') {
-      applyHiDNumbering(STATE.sections, cfg.hid_bundle_size || 4);
-    } else {
-      restoreNormalNumbering(STATE.sections);
-    }
-    cfg.numbering_mode = e.target.value;
-    render();
-    saveState(false);
-  });
-  numberingModeRow.appendChild(modeSelect);
-  panel.appendChild(numberingModeRow);
-
-  // Shared by both "Label CKT as" modes -- the breakout stripe below
-  // groups circuits into sets of this size for its own coloring even when
-  // CKT itself is showing the actual circuit number, not just when it's
-  // showing the breakout #, so this stays visible either way.
-  const bundleRow = document.createElement('div');
-  bundleRow.className = 'swatchRow';
-  bundleRow.appendChild(document.createTextNode('Circuits per breakout cable:'));
-  const bundleInput = document.createElement('input');
-  bundleInput.type = 'number';
-  bundleInput.min = 1;
-  bundleInput.value = cfg.hid_bundle_size || 4;
-  bundleInput.addEventListener('change', e => {
-    cfg.hid_bundle_size = parseInt(e.target.value) || 4;
-    if (cfg.numbering_mode === 'hid') applyHiDNumbering(STATE.sections, cfg.hid_bundle_size);
-    render();
-    saveState(false);
-  });
-  bundleRow.appendChild(bundleInput);
-  panel.appendChild(bundleRow);
-
-  // Leg order only means anything once boxes are actually being labeled
-  // by breakout #, so it's hidden the rest of the time instead of sitting
-  // there looking like it applies regardless.
-  if (cfg.numbering_mode === 'hid') {
-    // Show-wide default for which way each breakout cable's legs count --
-    // most crews count UP as they go down the hang (1,2,3,4), some brands'
-    // convention counts DOWN (4,3,2,1). Any hang can still override this
-    // individually via "Descending (4,3,2,1)" in its own Define popover;
-    // this just sets what a hang gets before anyone's touched that
-    // checkbox. Defaults to descending (not ascending) so upgrading this
-    // app doesn't silently renumber an already-configured show.
-    const orderRow = document.createElement('div');
-    orderRow.className = 'swatchRow';
-    orderRow.appendChild(document.createTextNode('Default leg order:'));
-    const orderSelect = document.createElement('select');
-    const ascOpt = document.createElement('option');
-    ascOpt.value = 'asc';
-    ascOpt.textContent = 'Ascending (1,2,3,4)';
-    const descOpt = document.createElement('option');
-    descOpt.value = 'desc';
-    descOpt.textContent = 'Descending (4,3,2,1)';
-    orderSelect.appendChild(ascOpt);
-    orderSelect.appendChild(descOpt);
-    orderSelect.value = cfg.hid_reverse_order_default === false ? 'asc' : 'desc';
-    orderSelect.addEventListener('change', e => {
-      cfg.hid_reverse_order_default = e.target.value !== 'asc';
+  const fieldsContainer = document.createElement('div');
+  panel.appendChild(fieldsContainer);
+  renderFlatFieldList(fieldsContainer, FLAT_FIELD_GROUPS.numbering, cfg, (key, cfg) => {
+    if (key === 'numbering_mode') {
+      if (cfg.numbering_mode === 'hid') applyHiDNumbering(STATE.sections, cfg.hid_bundle_size || 4);
+      else restoreNormalNumbering(STATE.sections);
+    } else if (key === 'hid_bundle_size' && cfg.numbering_mode === 'hid') {
+      applyHiDNumbering(STATE.sections, cfg.hid_bundle_size);
+    } else if (key === 'hid_reverse_order_default') {
       // Only re-numbers hangs actually following the default -- any hang
       // with its own explicit Descending checkbox state keeps that,
       // resolveHidReverseOrder sorts out which is which per section.
       applyHiDNumbering(STATE.sections, cfg.hid_bundle_size || 4);
-      render();
-      saveState(false);
-    });
-    orderRow.appendChild(orderSelect);
-    panel.appendChild(orderRow);
-  }
-
-  // The stripe next to CKT that visually shows which boxes share one
-  // breakout cable -- same "circuit set" grouping the design generator
-  // used for the Excel version of this feature, just under a
-  // brand-neutral name here since it lives alongside the rename field.
-  const setHeader = document.createElement('div');
-  setHeader.textContent = `${cableName} stripe (next to CKT, groups every N circuits above -- same N):`;
-  panel.appendChild(setHeader);
-
-  const setEnabledRow = document.createElement('div');
-  setEnabledRow.className = 'swatchRow';
-  const setEnabledCb = document.createElement('input');
-  setEnabledCb.type = 'checkbox';
-  setEnabledCb.checked = !!cfg.circuit_set_enabled;
-  setEnabledCb.addEventListener('change', e => { cfg.circuit_set_enabled = e.target.checked; render(); saveState(false); });
-  setEnabledRow.appendChild(setEnabledCb);
-  setEnabledRow.appendChild(document.createTextNode(` Show ${cableName} stripe`));
-  panel.appendChild(setEnabledRow);
-
-  const setPaletteLabel = document.createElement('div');
-  setPaletteLabel.className = 'panel-label';
-  setPaletteLabel.textContent = 'Stripe colors';
-  panel.appendChild(setPaletteLabel);
-  const setPaletteGrid = document.createElement('div');
-  setPaletteGrid.className = 'swatch-grid';
-  (cfg.circuit_set_colors || []).forEach((hex, i) => {
-    const item = document.createElement('div');
-    item.className = 'swatch-item';
-    const inp = document.createElement('input');
-    inp.type = 'color';
-    inp.value = argbToCss(hex) || '#cccccc';
-    inp.addEventListener('change', e => { cfg.circuit_set_colors[i] = cssToArgb(e.target.value); render(); saveState(false); });
-    item.appendChild(inp);
-    const rm = document.createElement('button');
-    rm.textContent = 'x';
-    rm.addEventListener('click', () => { cfg.circuit_set_colors.splice(i,1); render(); saveState(false); });
-    item.appendChild(rm);
-    setPaletteGrid.appendChild(item);
+    }
+    render();
+    saveState(false);
   });
-  panel.appendChild(setPaletteGrid);
-  const addSetColorBtn = document.createElement('button');
-  addSetColorBtn.textContent = '+ color';
-  addSetColorBtn.addEventListener('click', () => { (cfg.circuit_set_colors = cfg.circuit_set_colors || []).push('FFCCCCCC'); render(); saveState(false); });
-  panel.appendChild(addSetColorBtn);
 }
 
 // A completely separate concept from the numbering panel above -- this is
@@ -2491,6 +2276,8 @@ function renderNumberingPanel() {
 // purely so it rides along with the existing show/date default-cascade
 // and "reset to show default" machinery for free, same reasoning as
 // breakout numbering sharing that panel/config with circuit colors.
+// Rendered from FLAT_FIELD_GROUPS.pickGroups, shared with show.js's
+// renderConfigPickGroupsOptions.
 function renderPickGroupsPanel() {
   const panel = document.getElementById('pickGroupsPanel');
   const cfg = STATE.circuit_color_config || (STATE.circuit_color_config = {enabled:false, show_row_fill:true, circuit_colors:[], cycle_length:4, hang_colors:[], circuit_set_enabled:false, circuit_set_colors:[], numbering_mode:'normal', hid_bundle_size:4, breakout_cable_name:'Trunk Cable', ink_friendly_patterns:false});
@@ -2501,36 +2288,9 @@ function renderPickGroupsPanel() {
   intro.textContent = 'Physical pick groups -- badges the boxes in one hoisted stack A1, A2, ... B1, B2, ..., from the top of each stack down:';
   panel.appendChild(intro);
 
-  const enabledRow = document.createElement('div');
-  enabledRow.className = 'swatchRow';
-  const enabledCb = document.createElement('input');
-  enabledCb.type = 'checkbox';
-  enabledCb.checked = !!cfg.pick_group_enabled;
-  enabledCb.addEventListener('change', e => { cfg.pick_group_enabled = e.target.checked; render(); saveState(false); });
-  enabledRow.appendChild(enabledCb);
-  enabledRow.appendChild(document.createTextNode(' Show pick group badges'));
-  panel.appendChild(enabledRow);
-
-  if (cfg.pick_group_enabled) {
-    // A box-type change always starts a new group regardless of this
-    // number (see computePickGroups) -- this only caps an unusually long
-    // run of one type, so it rarely needs changing from the real-world
-    // typical stack height.
-    const sizeRow = document.createElement('div');
-    sizeRow.className = 'swatchRow';
-    sizeRow.appendChild(document.createTextNode('Boxes per pick (typical):'));
-    const sizeInput = document.createElement('input');
-    sizeInput.type = 'number';
-    sizeInput.min = 1;
-    sizeInput.value = cfg.pick_group_size || 4;
-    sizeInput.addEventListener('change', e => {
-      cfg.pick_group_size = parseInt(e.target.value) || 4;
-      render();
-      saveState(false);
-    });
-    sizeRow.appendChild(sizeInput);
-    panel.appendChild(sizeRow);
-  }
+  const fieldsContainer = document.createElement('div');
+  panel.appendChild(fieldsContainer);
+  renderFlatFieldList(fieldsContainer, FLAT_FIELD_GROUPS.pickGroups, cfg, () => { render(); saveState(false); });
 }
 
 async function saveState(showStatus) {
@@ -2915,7 +2675,15 @@ function reconcileUploadedSections(oldSections, newSections) {
       }
     } else {
       const profile = HANG_PROFILES.find(p => normalizeHangIdentity(p.name) === key);
-      if (profile) applyHangProfileToSection(newSection, profile);
+      if (profile) {
+        applyHangProfileToSection(newSection, profile);
+      } else if (cfg && cfg.numbering_mode === 'hid') {
+        // Brand-new hang, no saved profile to carry a number scheme in from
+        // either -- still has to pick up the show/date's own Hi-D default
+        // (reverse leg order included, via resolveHidReverseOrder), the
+        // same as every other branch above already does.
+        applyHiDNumbering([newSection], bundleSize);
+      }
     }
   });
   return newSections;

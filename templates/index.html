@@ -99,6 +99,10 @@
     </div>
     <div id="hangsPanel" class="settingsPanel" style="display:block;"></div>
     <label id="uploadLabel" class="upload-label">Upload sheet<input id="uploadInput" type="file" accept=".pdf,.txt"></label>
+    <div class="upload-info">
+      <span id="uploadedFileName" class="upload-filename"></span>
+      <span id="uploadedFileTime" class="upload-filename"></span>
+    </div>
     <!-- Page design is a menu, not just a panel -- Cards per row/Strip
          labels live here directly, and Data tags/Circuit numbering/
          Colors/Data bar each get their own button that flies out a
@@ -255,6 +259,7 @@
 
 <script src="{{ url_for('static', filename='auth.js') }}"></script>
 <script src="{{ url_for('static', filename='theme.js') }}"></script>
+<script src="{{ url_for('static', filename='config-fields.js') }}"></script>
 <script src="{{ url_for('static', filename='app.js') }}"></script>
 <script>
 if ('serviceWorker' in navigator) {

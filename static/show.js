@@ -2,17 +2,6 @@ const SHOW_SLUG = document.body.getAttribute('data-show-slug');
 
 function dateHref(dateSlug) { return '/' + encodeURIComponent(SHOW_SLUG) + '/' + encodeURIComponent(dateSlug); }
 
-function argbToCss(argb) {
-  if (!argb) return null;
-  const h = argb.replace('#', '');
-  const rgb = h.length >= 6 ? h.slice(-6) : h.padStart(6, '0');
-  return '#' + rgb;
-}
-
-function cssToArgb(css) {
-  return 'FF' + css.replace('#', '').toUpperCase();
-}
-
 function renderDates(dates) {
   const list = document.getElementById('dateList');
   list.innerHTML = '';
@@ -84,8 +73,9 @@ let SHOW_HIDDEN_TAGS = [];
 // SE's show-wide Data Bar (the Mode/Aim/Trim/etc. panel) placement
 // default -- null means "no override, use the automatic card-width-driven
 // placement" (see the "Data Bar mode" CSS rules and resolveDataBarMode in
-// app.js), same convention as an individual Date's own override.
-const DATA_BAR_MODES = ['side-left', 'side-right', 'bottom', 'hidden'];
+// app.js), same convention as an individual Date's own override. The
+// DATA_BAR_MODES value list itself lives in config-fields.js, shared with
+// app.js.
 let SHOW_DATA_BAR_MODE = null;
 
 // Circuit/hang colors and breakout numbering -- this Show's own standing
@@ -142,6 +132,7 @@ const CONFIG_GROUPS = [
   { id: 'dataBar', label: 'Data Bar' },
   { id: 'colors', label: 'Colors' },
   { id: 'numbering', label: 'Circuit Numbering' },
+  { id: 'pickGroups', label: 'Box Groups' },
   { id: 'tapeBurn', label: 'Tape Burn' },
   { id: 'trimUnits', label: 'Trim Units' },
   { id: 'platformProfiles', label: 'Platform Profiles' },
@@ -175,6 +166,7 @@ function renderConfigOptions() {
   if (CONFIG_ACTIVE_GROUP === 'dataBar') renderConfigDataBarOptions();
   else if (CONFIG_ACTIVE_GROUP === 'colors') renderConfigColorsOptions();
   else if (CONFIG_ACTIVE_GROUP === 'numbering') renderConfigNumberingOptions();
+  else if (CONFIG_ACTIVE_GROUP === 'pickGroups') renderConfigPickGroupsOptions();
   else if (CONFIG_ACTIVE_GROUP === 'tapeBurn') renderConfigTapeBurnOptions();
   else if (CONFIG_ACTIVE_GROUP === 'trimUnits') renderConfigTrimUnitsOptions();
   else if (CONFIG_ACTIVE_GROUP === 'platformProfiles') renderConfigPlatformProfilesOptions();
@@ -215,7 +207,7 @@ function renderConfigTrimUnitsOptions() {
   note.textContent = 'Default Trim display for every date in this show -- an individual date can still override it for itself from the Date page.';
   pane.appendChild(note);
 
-  [['decimal', 'Decimal feet (e.g. 56.89 ft)'], ['feet_inches', 'Feet & inches (e.g. 56\' 11")']].forEach(([value, label]) => {
+  TRIM_UNIT_FORMAT_OPTIONS.forEach(([value, label]) => {
     const row = document.createElement('label');
     row.className = 'swatchRow';
     const radio = document.createElement('input');
@@ -233,7 +225,7 @@ function renderConfigTrimUnitsOptions() {
     precisionLabel.className = 'panel-label';
     precisionLabel.textContent = 'Round inches to:';
     pane.appendChild(precisionLabel);
-    [['whole', 'Whole inch'], ['half', 'Half inch'], ['quarter', 'Quarter inch']].forEach(([value, label]) => {
+    TRIM_INCHES_PRECISION_OPTIONS.forEach(([value, label]) => {
       const row = document.createElement('label');
       row.className = 'swatchRow';
       const radio = document.createElement('input');
@@ -280,7 +272,7 @@ function renderConfigDataBarOptions() {
   note.className = 'panel-note';
   note.textContent = 'Default placement for every date in this show -- an individual date can still override it for itself.';
   pane.appendChild(note);
-  [[null, 'Automatic (by card width)'], ['side-left', 'Side (left)'], ['side-right', 'Side (right)'], ['bottom', 'Bottom'], ['hidden', 'Hidden']].forEach(([value, label]) => {
+  [[null, 'Automatic (by card width)'], ...DATA_BAR_MODE_OPTIONS].forEach(([value, label]) => {
     const row = document.createElement('label');
     row.className = 'swatchRow';
     const radio = document.createElement('input');
@@ -305,191 +297,43 @@ function renderConfigDataBarOptions() {
 // page; there's no specific date's sections to convert here.
 function renderConfigColorsOptions() {
   const pane = document.getElementById('configOptionsPane');
-  const cfg = CONFIG_DRAFT_CIRCUIT_COLOR_CONFIG;
   pane.innerHTML = '';
-
-  const enabledRow = document.createElement('label');
-  enabledRow.className = 'swatchRow';
-  const enabledCb = document.createElement('input');
-  enabledCb.type = 'checkbox';
-  enabledCb.checked = !!cfg.enabled;
-  enabledCb.addEventListener('change', e => { cfg.enabled = e.target.checked; });
-  enabledRow.appendChild(enabledCb);
-  enabledRow.appendChild(document.createTextNode(' Enable circuit coloring'));
-  pane.appendChild(enabledRow);
-
-  const rowFillRow = document.createElement('label');
-  rowFillRow.className = 'swatchRow';
-  const rowFillCb = document.createElement('input');
-  rowFillCb.type = 'checkbox';
-  rowFillCb.checked = cfg.show_row_fill !== false;
-  rowFillCb.addEventListener('change', e => { cfg.show_row_fill = e.target.checked; });
-  rowFillRow.appendChild(rowFillCb);
-  rowFillRow.appendChild(document.createTextNode(' Show color across whole row'));
-  pane.appendChild(rowFillRow);
-
-  const inkRow = document.createElement('label');
-  inkRow.className = 'swatchRow';
-  const inkCb = document.createElement('input');
-  inkCb.type = 'checkbox';
-  inkCb.checked = !!cfg.ink_friendly_patterns;
-  inkCb.addEventListener('change', e => { cfg.ink_friendly_patterns = e.target.checked; });
-  inkRow.appendChild(inkCb);
-  inkRow.appendChild(document.createTextNode(' Use ink-friendly patterns (for black & white printing)'));
-  pane.appendChild(inkRow);
-
-  // Hang identity stripes listed first -- crews retune/add these per rig far
-  // more often than the underlying circuit color palette below, which tends
-  // to stay put once set.
-  const hangHeader = document.createElement('div');
-  hangHeader.className = 'panel-label';
-  hangHeader.textContent = 'Hang identity stripes (matched against each card\'s title)';
-  pane.appendChild(hangHeader);
-  (cfg.hang_colors || []).forEach((entry, i) => {
-    const row = document.createElement('div');
-    row.className = 'swatchRow';
-    const matchInp = document.createElement('input');
-    matchInp.type = 'text';
-    matchInp.placeholder = 'e.g. side';
-    matchInp.value = entry.match || '';
-    matchInp.addEventListener('change', e => { entry.match = e.target.value; });
-    row.appendChild(matchInp);
-    const colorInp = document.createElement('input');
-    colorInp.type = 'color';
-    colorInp.value = argbToCss(entry.fill) || '#ffffff';
-    colorInp.addEventListener('change', e => { entry.fill = cssToArgb(e.target.value); });
-    row.appendChild(colorInp);
-    const rm = document.createElement('button');
-    rm.type = 'button';
-    rm.textContent = 'x';
-    rm.addEventListener('click', () => { cfg.hang_colors.splice(i, 1); renderConfigColorsOptions(); });
-    row.appendChild(rm);
-    pane.appendChild(row);
-  });
-  const addHangBtn = document.createElement('button');
-  addHangBtn.type = 'button';
-  addHangBtn.textContent = '+ hang stripe rule';
-  addHangBtn.addEventListener('click', () => { (cfg.hang_colors = cfg.hang_colors || []).push({ match: '', fill: 'FFFFFFFF' }); renderConfigColorsOptions(); });
-  pane.appendChild(addHangBtn);
-
-  const paletteLabel = document.createElement('div');
-  paletteLabel.className = 'panel-label';
-  paletteLabel.textContent = 'Circuit colors';
-  pane.appendChild(paletteLabel);
-  const paletteGrid = document.createElement('div');
-  paletteGrid.className = 'swatch-grid';
-  (cfg.circuit_colors || []).forEach((hex, i) => {
-    const item = document.createElement('div');
-    item.className = 'swatch-item';
-    const inp = document.createElement('input');
-    inp.type = 'color';
-    inp.value = argbToCss(hex) || '#cccccc';
-    inp.addEventListener('change', e => { cfg.circuit_colors[i] = cssToArgb(e.target.value); });
-    item.appendChild(inp);
-    const rm = document.createElement('button');
-    rm.type = 'button';
-    rm.textContent = 'x';
-    rm.addEventListener('click', () => { cfg.circuit_colors.splice(i, 1); renderConfigColorsOptions(); });
-    item.appendChild(rm);
-    paletteGrid.appendChild(item);
-  });
-  pane.appendChild(paletteGrid);
-  const addColorBtn = document.createElement('button');
-  addColorBtn.type = 'button';
-  addColorBtn.textContent = '+ color';
-  addColorBtn.addEventListener('click', () => { (cfg.circuit_colors = cfg.circuit_colors || []).push('FFCCCCCC'); renderConfigColorsOptions(); });
-  pane.appendChild(addColorBtn);
-
-  const cycleRow = document.createElement('div');
-  cycleRow.className = 'swatchRow';
-  cycleRow.appendChild(document.createTextNode('Repeats after N colors:'));
-  const cycleInput = document.createElement('input');
-  cycleInput.type = 'number';
-  cycleInput.min = 1;
-  cycleInput.value = cfg.cycle_length || 4;
-  cycleInput.addEventListener('change', e => { cfg.cycle_length = parseInt(e.target.value) || 1; });
-  cycleRow.appendChild(cycleInput);
-  pane.appendChild(cycleRow);
+  renderFlatFieldList(pane, FLAT_FIELD_GROUPS.colors, CONFIG_DRAFT_CIRCUIT_COLOR_CONFIG);
 }
 
+// Circuit/hang colors and breakout numbering -- this Show's own default
+// (see CIRCUIT_COLOR_CONFIG above), rendered from the same field list as
+// the Date page's Colors/Circuit Numbering panels (app.js's
+// renderColorPanel/renderNumberingPanel, see config-fields.js) so the two
+// stay in lockstep. The one thing intentionally left out here is the
+// "Convert to Hi-D numbering" action itself -- that mutates a Date's actual
+// circuit-number text in STATE.sections, which only exists on the Date
+// page; there's no specific date's sections to convert here.
 function renderConfigNumberingOptions() {
   const pane = document.getElementById('configOptionsPane');
-  const cfg = CONFIG_DRAFT_CIRCUIT_COLOR_CONFIG;
-  const cableName = cfg.breakout_cable_name || 'Trunk Cable';
   pane.innerHTML = '';
-
   const note = document.createElement('p');
   note.className = 'panel-note';
   note.textContent = 'Circuit breakout numbering (which brand of breakout cable this rig uses) -- the shared default new dates start from. Converting an individual date\'s own circuit numbers still happens on that date\'s own Circuit Numbering panel.';
   pane.appendChild(note);
+  const fieldsContainer = document.createElement('div');
+  pane.appendChild(fieldsContainer);
+  renderFlatFieldList(fieldsContainer, FLAT_FIELD_GROUPS.numbering, CONFIG_DRAFT_CIRCUIT_COLOR_CONFIG);
+}
 
-  const nameRow = document.createElement('div');
-  nameRow.className = 'swatchRow';
-  nameRow.appendChild(document.createTextNode('Breakout cable name:'));
-  const nameInput = document.createElement('input');
-  nameInput.type = 'text';
-  nameInput.value = cableName;
-  nameInput.placeholder = 'Trunk Cable / Socapex / NL8...';
-  nameInput.addEventListener('change', e => {
-    cfg.breakout_cable_name = e.target.value.trim() || 'Trunk Cable';
-    renderConfigNumberingOptions();
-  });
-  nameRow.appendChild(nameInput);
-  pane.appendChild(nameRow);
-
-  const bundleRow = document.createElement('div');
-  bundleRow.className = 'swatchRow';
-  bundleRow.appendChild(document.createTextNode('Circuits per breakout cable:'));
-  const bundleInput = document.createElement('input');
-  bundleInput.type = 'number';
-  bundleInput.min = 1;
-  bundleInput.value = cfg.hid_bundle_size || 4;
-  bundleInput.addEventListener('change', e => { cfg.hid_bundle_size = parseInt(e.target.value) || 4; });
-  bundleRow.appendChild(bundleInput);
-  pane.appendChild(bundleRow);
-
-  const setHeader = document.createElement('div');
-  setHeader.className = 'panel-label';
-  setHeader.textContent = cableName + ' stripe (next to CKT, groups every N circuits above -- same N)';
-  pane.appendChild(setHeader);
-
-  const setEnabledRow = document.createElement('label');
-  setEnabledRow.className = 'swatchRow';
-  const setEnabledCb = document.createElement('input');
-  setEnabledCb.type = 'checkbox';
-  setEnabledCb.checked = !!cfg.circuit_set_enabled;
-  setEnabledCb.addEventListener('change', e => { cfg.circuit_set_enabled = e.target.checked; });
-  setEnabledRow.appendChild(setEnabledCb);
-  setEnabledRow.appendChild(document.createTextNode(' Show ' + cableName + ' stripe'));
-  pane.appendChild(setEnabledRow);
-
-  const setPaletteLabel = document.createElement('div');
-  setPaletteLabel.className = 'panel-label';
-  setPaletteLabel.textContent = 'Stripe colors';
-  pane.appendChild(setPaletteLabel);
-  const setPaletteGrid = document.createElement('div');
-  setPaletteGrid.className = 'swatch-grid';
-  (cfg.circuit_set_colors || []).forEach((hex, i) => {
-    const item = document.createElement('div');
-    item.className = 'swatch-item';
-    const inp = document.createElement('input');
-    inp.type = 'color';
-    inp.value = argbToCss(hex) || '#cccccc';
-    inp.addEventListener('change', e => { cfg.circuit_set_colors[i] = cssToArgb(e.target.value); });
-    item.appendChild(inp);
-    const rm = document.createElement('button');
-    rm.type = 'button';
-    rm.textContent = 'x';
-    rm.addEventListener('click', () => { cfg.circuit_set_colors.splice(i, 1); renderConfigNumberingOptions(); });
-    item.appendChild(rm);
-    setPaletteGrid.appendChild(item);
-  });
-  pane.appendChild(setPaletteGrid);
-  const addSetColorBtn = document.createElement('button');
-  addSetColorBtn.type = 'button';
-  addSetColorBtn.textContent = '+ color';
-  addSetColorBtn.addEventListener('click', () => { (cfg.circuit_set_colors = cfg.circuit_set_colors || []).push('FFCCCCCC'); renderConfigNumberingOptions(); });
-  pane.appendChild(addSetColorBtn);
+// Physical pick/box groups -- same show-wide-default convention as Colors/
+// Numbering above, sharing config-fields.js's field list with app.js's
+// renderPickGroupsPanel.
+function renderConfigPickGroupsOptions() {
+  const pane = document.getElementById('configOptionsPane');
+  pane.innerHTML = '';
+  const note = document.createElement('p');
+  note.className = 'panel-note';
+  note.textContent = 'Physical pick groups (badges the boxes in one hoisted stack A1, A2, ... B1, B2, ...) -- the shared default new dates start from.';
+  pane.appendChild(note);
+  const fieldsContainer = document.createElement('div');
+  pane.appendChild(fieldsContainer);
+  renderFlatFieldList(fieldsContainer, FLAT_FIELD_GROUPS.pickGroups, CONFIG_DRAFT_CIRCUIT_COLOR_CONFIG);
 }
 
 // PA Platform Profiles -- named, global (cross-show) snapshots of the

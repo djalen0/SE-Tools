@@ -29,7 +29,7 @@ import threading
 import time
 import urllib.parse
 import urllib.request
-from datetime import date as date_cls, timedelta
+from datetime import date as date_cls, datetime, timedelta, timezone
 from pathlib import Path
 from urllib.error import URLError
 
@@ -381,6 +381,11 @@ def build_job(sections, source_name, page_header=None, show=None):
     show_cfg = show.get('circuit_color_config') if show else None
     return {
         'source_file': source_name,
+        # UTC ISO 8601 -- only set on an actual upload (source_name is
+        # None for a brand-new, nothing-uploaded-yet Date), left as the
+        # frontend's job to format into the visitor's own local time/
+        # locale rather than baking one format in here.
+        'source_file_uploaded_at': datetime.now(timezone.utc).isoformat() if source_name else None,
         'sections': sections,
         'cards_per_row': prefs.get('cards_per_row', 2),
         'view_mode': prefs.get('view_mode', 'tabs'),
@@ -751,6 +756,9 @@ def api_create_platform_profile():
                 'circuit_color_config': show.get('circuit_color_config') or load_circuit_color_config(DESIGN_PATH if DESIGN_PATH.exists() else None),
                 'hidden_tags': show.get('hidden_tags', []),
                 'data_bar_mode': show.get('data_bar_mode'),
+                'tape_burn_default_ft': show.get('tape_burn_default_ft', 0),
+                'trim_unit_format': show.get('trim_unit_format', 'decimal'),
+                'trim_inches_precision': show.get('trim_inches_precision', 'whole'),
                 'strip_pair_labels': prefs.get('strip_pair_labels', False),
                 'view_mode': prefs.get('view_mode', 'tabs'),
                 'cards_per_row': prefs.get('cards_per_row', 2),
@@ -787,6 +795,9 @@ def api_apply_platform_profile(show_slug):
         show['hidden_tags'] = settings.get('hidden_tags', [])
         show['data_bar_mode'] = settings.get('data_bar_mode')
         show['circuit_color_config'] = settings.get('circuit_color_config') or None
+        show['tape_burn_default_ft'] = settings.get('tape_burn_default_ft', 0)
+        show['trim_unit_format'] = settings.get('trim_unit_format') if settings.get('trim_unit_format') in TRIM_UNIT_FORMATS else 'decimal'
+        show['trim_inches_precision'] = settings.get('trim_inches_precision') if settings.get('trim_inches_precision') in TRIM_INCHES_PRECISIONS else 'whole'
         show_meta_path(show_slug).write_text(json.dumps(show, indent=2), encoding='utf-8')
         save_prefs({
             'cards_per_row': settings.get('cards_per_row', 2),
