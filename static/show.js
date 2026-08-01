@@ -36,22 +36,141 @@ function renderDates(dates) {
   });
 }
 
+// Server sends dates newest-first already (see list_dates, app.py) --
+// kept here so the sort toggle below can flip the view instantly with a
+// plain array reverse, no re-fetch needed.
+let LAST_DATES = [];
+let DATES_OLDEST_FIRST = false;
+
+function renderSortToggleLabel() {
+  const btn = document.getElementById('dateSortToggleBtn');
+  btn.textContent = DATES_OLDEST_FIRST ? 'Oldest first' : 'Newest first';
+}
+
 function loadDates() {
   fetch('/api/shows/' + encodeURIComponent(SHOW_SLUG) + '/dates').then(r => {
-    if (!r.ok) { renderDates([]); return; }
-    r.json().then(data => renderDates(data.dates || []));
+    if (!r.ok) { LAST_DATES = []; renderDates([]); return; }
+    r.json().then(data => {
+      LAST_DATES = data.dates || [];
+      renderDates(DATES_OLDEST_FIRST ? [...LAST_DATES].reverse() : LAST_DATES);
+    });
   });
 }
+
+document.getElementById('dateSortToggleBtn').addEventListener('click', () => {
+  DATES_OLDEST_FIRST = !DATES_OLDEST_FIRST;
+  renderSortToggleLabel();
+  renderDates(DATES_OLDEST_FIRST ? [...LAST_DATES].reverse() : LAST_DATES);
+});
+
+// <input type=date> defaults to empty -- pre-filling it with today (in the
+// visitor's own local timezone, not the server's) means one tap on the
+// date field already lands on the day most likely wanted, rather than
+// forcing every date to be picked from scratch.
+(function setDefaultDateValue() {
+  const input = document.getElementById('newDateInput');
+  const now = new Date();
+  const mm = String(now.getMonth() + 1).padStart(2, '0');
+  const dd = String(now.getDate()).padStart(2, '0');
+  input.value = `${now.getFullYear()}-${mm}-${dd}`;
+})();
+
+// <input type=date> submits ISO (YYYY-MM-DD) -- converted to M/D/YYYY here
+// (split on '-' rather than `new Date(...)`, which parses a bare ISO date
+// as UTC midnight and can land on the wrong day once local getMonth()/
+// getDate() re-interpret it in a negative-UTC-offset timezone) so newly
+// created dates stay in the same free-text display format list_dates'
+// own parser (app.py) and every existing date already use.
+function isoDateToDisplay(iso) {
+  const [y, m, d] = iso.split('-').map(Number);
+  return `${m}/${d}/${y}`;
+}
+
+// Same venue-search-fills-Address flow as the Date page's own header
+// fields (openVenueSearch/selectVenueResult in app.js) -- just writing
+// straight into this form's own inputs instead of STATE/saveState, since
+// there's no date (and so nothing to save) until the form is submitted.
+const VENUE_SEARCH_MIN_QUERY_LEN = 3;
+function openNewDateVenueSearch() {
+  const wrap = document.querySelector('.new-date-venue-wrap');
+  const existing = wrap.querySelector('.venue-search-dropdown');
+  if (existing) { existing.remove(); return; }
+  const query = document.getElementById('newDateVenueInput').value.trim();
+  if (query.length < VENUE_SEARCH_MIN_QUERY_LEN) return;
+  const dropdown = document.createElement('div');
+  dropdown.className = 'venue-search-dropdown';
+  const loading = document.createElement('div');
+  loading.className = 'venue-search-empty';
+  loading.textContent = 'Searching…';
+  dropdown.appendChild(loading);
+  wrap.appendChild(dropdown);
+  fetch(`/api/venue-search?q=${encodeURIComponent(query)}`)
+    .then(r => r.json())
+    .then(data => {
+      // The dropdown may have already been closed (click-outside, or a
+      // second search fired) by the time this resolves -- nothing left to
+      // fill in.
+      if (!dropdown.isConnected) return;
+      dropdown.innerHTML = '';
+      const results = (data && data.results) || [];
+      if (!results.length) {
+        const empty = document.createElement('div');
+        empty.className = 'venue-search-empty';
+        empty.textContent = data && data.error ? 'Venue search unavailable.' : 'No matches.';
+        dropdown.appendChild(empty);
+        return;
+      }
+      results.forEach(result => {
+        const opt = document.createElement('button');
+        opt.type = 'button';
+        opt.className = 'venue-search-option';
+        opt.textContent = result.name;
+        if (result.address_short) {
+          const sub = document.createElement('span');
+          sub.className = 'venue-search-option-sub';
+          sub.textContent = result.address_short;
+          opt.appendChild(sub);
+        }
+        opt.addEventListener('click', e => {
+          e.stopPropagation();
+          document.getElementById('newDateVenueInput').value = result.name;
+          document.getElementById('newDateAddressInput').value = result.address_short || '';
+          dropdown.remove();
+        });
+        dropdown.appendChild(opt);
+      });
+    })
+    .catch(() => {
+      if (!dropdown.isConnected) return;
+      dropdown.innerHTML = '';
+      const empty = document.createElement('div');
+      empty.className = 'venue-search-empty';
+      empty.textContent = 'Venue search unavailable.';
+      dropdown.appendChild(empty);
+    });
+}
+document.getElementById('newDateVenueSearchBtn').addEventListener('click', openNewDateVenueSearch);
+document.getElementById('newDateVenueInput').addEventListener('keydown', e => {
+  if (e.key === 'Enter') { e.preventDefault(); openNewDateVenueSearch(); }
+});
+document.addEventListener('click', e => {
+  if (e.target.closest('.new-date-venue-wrap')) return;
+  const open = document.querySelector('.new-date-venue-wrap .venue-search-dropdown');
+  if (open) open.remove();
+});
 
 document.getElementById('newDateForm').addEventListener('submit', e => {
   e.preventDefault();
   const form = e.target;
-  const date = form.date.value.trim();
-  if (!date) return;
+  const isoDate = form.date.value;
+  if (!isoDate) return;
+  const date = isoDateToDisplay(isoDate);
+  const venue = form.venue.value.trim();
+  const address = form.address.value.trim();
   fetch('/api/shows/' + encodeURIComponent(SHOW_SLUG) + '/dates', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ date }),
+    body: JSON.stringify({ date, venue, address }),
   })
     .then(async r => ({ ok: r.ok, body: await r.json().catch(() => ({})) }))
     .then(({ ok, body }) => {

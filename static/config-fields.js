@@ -22,6 +22,7 @@ const FLAT_FIELD_GROUPS = {
     { key: 'show_row_fill', type: 'checkbox', label: 'Show color across whole row',
       get: cfg => cfg.show_row_fill !== false },
     { key: 'ink_friendly_patterns', type: 'checkbox', label: 'Use ink-friendly patterns (for black & white printing)' },
+    { key: 'show_speaker_icons', type: 'checkbox', label: 'Show speaker face icons (experimental, off by default)' },
     { key: 'hang_colors', type: 'match-color-list', label: "Hang identity stripes (matched against each card's title)" },
     { key: 'circuit_colors', type: 'color-list', label: 'Circuit colors' },
     { key: 'cycle_length', type: 'number', label: 'Repeats after N colors:', min: 1, fallback: 4 },

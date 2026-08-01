@@ -1432,6 +1432,20 @@ function formatModelDispersion(cab) {
   return `${model} (${shown})`;
 }
 
+// Page URLs are /<show>/<date>, not /static/..., so a plain relative path
+// here would resolve against the wrong base -- anchor to this very script's
+// own src (reliable only at top-level eval time, hence capturing it now
+// rather than inside a function called later) to get back to /static/.
+const STATIC_BASE = document.currentScript ? document.currentScript.src.replace(/app\.js(?:\?.*)?$/, '') : '/static/';
+
+// Registry of front-face vector art, keyed by the exact cab.model token
+// pinning_parser/pdf_parser produce (see formatModelDispersion above) --
+// add a new model here once its SVG lands in static/speaker-faces/. Models
+// with no entry just show the plain text chip, same as before this existed.
+const SPEAKER_FACE_ICONS = {
+  CO12: STATIC_BASE + 'speaker-faces/CO12.svg',
+};
+
 // Groups a hang's cabinets into their physical "pick" -- the stack of
 // boxes (generally all one box type, generally ~4) assembled on the
 // ground and hoisted as one unit, then labeled A1-A4, B1-B4, ... from the
@@ -1595,15 +1609,8 @@ function renderCard(section, cfg, activePalette, cycleLen) {
   boxList.className = 'box-list';
 
   // 'dispersion' is folded into the 'model' column's own display (see
-  // formatModelDispersion) rather than getting a separate column. NFC is
-  // admin-only -- signed-in editors see it, an anonymous/view-only
-  // visitor (a ?view=1 link handed to a PA technician, or anyone not
-  // signed in) never does, on screen or in their own PDF export (Export
-  // PDF stays enabled for them -- see isReadOnly's own comment -- so this
-  // has to be filtered here, not just gated behind a disabled control).
-  // No separate toggle for this: it's a fixed rule, not a per-show
-  // preference, so there's nothing to surface as a setting either way.
-  const fields = (STATE.fields_enabled || []).filter(f => f !== 'dispersion' && (f !== 'nfc' || !isReadOnly()));
+  // formatModelDispersion) rather than getting a separate column.
+  const fields = (STATE.fields_enabled || []).filter(f => f !== 'dispersion');
 
   const headerRow = document.createElement('div');
   headerRow.className = 'box-row box-header';
@@ -1782,7 +1789,18 @@ function renderCard(section, cfg, activePalette, cycleLen) {
           }
         }
       } else if (f === 'model') {
-        cell.appendChild(makeChip(formatModelDispersion(cab)));
+        const wrap = document.createElement('div');
+        wrap.className = 'model-cell-wrap';
+        const faceIcon = cfg.show_speaker_icons ? SPEAKER_FACE_ICONS[cab.model] : null;
+        if (faceIcon) {
+          const img = document.createElement('img');
+          img.className = 'speaker-face-icon';
+          img.src = faceIcon;
+          img.alt = '';
+          wrap.appendChild(img);
+        }
+        wrap.appendChild(makeChip(formatModelDispersion(cab)));
+        cell.appendChild(wrap);
       } else if (f === 'angle') {
         // Box 1 (topmost/reference) has no box above it, so it gets no
         // splay value at all -- same convention as the Excel output.
@@ -2744,7 +2762,7 @@ function applyViewOnlyLock() {
     if (el.closest('#authPopover') || el.closest('#dataTagsPanel')) return;
     el.disabled = readOnly;
   });
-  const alwaysEnabled = ['printGridBtn', 'printMobileBtn', 'printMobileBtnVO', 'colorToggleBtn', 'numberingToggleBtn', 'pickGroupsToggleBtn', 'dataTagsToggleBtn', 'dataTagsToggleBtnVO', 'pageDesignToggleBtn', 'menuToggleBtn', 'menuCloseBtn', 'authLockBtn', 'sidebarToggleTab'];
+  const alwaysEnabled = ['printGridBtn', 'printMobileBtn', 'printMobileBtnVO', 'colorToggleBtn', 'numberingToggleBtn', 'pickGroupsToggleBtn', 'dataTagsToggleBtn', 'dataTagsToggleBtnVO', 'pageDesignToggleBtn', 'advancedToggleBtn', 'menuToggleBtn', 'menuCloseBtn', 'authLockBtn', 'sidebarToggleTab'];
   document.querySelectorAll('button').forEach(btn => {
     if (alwaysEnabled.includes(btn.id) || btn.closest('#authPopover') || btn.closest('#dataTagsPanel') || btn.classList.contains('meta-row-hide-btn') || btn.classList.contains('meta-show-all-btn') || btn.classList.contains('hang-tab')) return;
     btn.disabled = readOnly;
@@ -2879,7 +2897,7 @@ document.getElementById('printMobileBtnVO').addEventListener('click', exportPrin
 // style.css) rather than flying out, so it's untouched by any of this.
 // Mobile keeps the old expand-in-place behavior for every panel, where
 // several open at once is harmless, so all of this is a no-op there.
-const PAGE_DESIGN_SUBPANEL_IDS = ['dataTagsPanel', 'numberingPanel', 'colorPanel', 'pickGroupsPanel', 'dataBarPanel', 'trimUnitsPanel'];
+const PAGE_DESIGN_SUBPANEL_IDS = ['dataTagsPanel', 'numberingPanel', 'colorPanel', 'pickGroupsPanel', 'dataBarPanel', 'trimUnitsPanel', 'advancedPanel'];
 function toggleSubpanel(panelId) {
   const p = document.getElementById(panelId);
   const opening = p.style.display === 'none';
@@ -2893,6 +2911,7 @@ document.getElementById('numberingToggleBtn').addEventListener('click', () => to
 document.getElementById('pickGroupsToggleBtn').addEventListener('click', () => toggleSubpanel('pickGroupsPanel'));
 document.getElementById('dataBarToggleBtn').addEventListener('click', () => toggleSubpanel('dataBarPanel'));
 document.getElementById('trimUnitsToggleBtn').addEventListener('click', () => toggleSubpanel('trimUnitsPanel'));
+document.getElementById('advancedToggleBtn').addEventListener('click', () => toggleSubpanel('advancedPanel'));
 document.getElementById('hangsToggleBtn').addEventListener('click', () => {
   const p = document.getElementById('hangsPanel');
   p.style.display = p.style.display === 'none' ? 'block' : 'none';
@@ -2932,6 +2951,7 @@ const PAGE_DESIGN_SUBPANEL_TOGGLE_SELECTORS = {
   pickGroupsPanel: '#pickGroupsToggleBtn',
   dataBarPanel: '#dataBarToggleBtn',
   trimUnitsPanel: '#trimUnitsToggleBtn',
+  advancedPanel: '#advancedToggleBtn',
 };
 PAGE_DESIGN_SUBPANEL_IDS.forEach(panelId => {
   document.getElementById(panelId).addEventListener('click', e => e.stopPropagation());
@@ -3067,3 +3087,129 @@ initDateSwitcher();
 // loadState()'s first render already ran with no Show default applied yet.
 loadShowMeta().then(render);
 loadState().then(() => loadHangProfiles().then(checkHangProfileVersions));
+
+// --- Advanced: face-pill design tuner ----------------------------------
+// Live knobs for the --face-* CSS variables (style.css, near
+// .model-cell-wrap) so the CO12-style overlay pill/text-stroke can be
+// dialed in without editing CSS and reloading. Lives in the Page design
+// menu's "Advanced" flyout (#advancedPanel, index.html) rather than always
+// on screen -- it's still a per-browser preview tool, not a per-show
+// setting (nothing here is saved to STATE/job.json), just tucked away
+// instead of floating over the page by default. The --face-* defaults in
+// style.css match the settings below, so deleting this IIFE later leaves
+// the look unchanged.
+(function initFaceDesignTuner() {
+  function hexToRgba(hex, alphaPct) {
+    const h = hex.replace('#', '');
+    const r = parseInt(h.substring(0, 2), 16);
+    const g = parseInt(h.substring(2, 4), 16);
+    const b = parseInt(h.substring(4, 6), 16);
+    return `rgba(${r}, ${g}, ${b}, ${(alphaPct / 100).toFixed(2)})`;
+  }
+
+  const root = document.documentElement;
+
+  const state = {
+    pillColor: '#ffffff',
+    pillOpacity: 0,
+    fontSize: 124,
+    fontWeight: 600,
+    invertIcon: false,
+    borderColor: '#000000',
+    borderOpacity: 0,
+    borderWidth: 1,
+  };
+
+  let out;
+  function apply() {
+    root.style.setProperty('--face-pill-bg', hexToRgba(state.pillColor, state.pillOpacity));
+    // A single unitless scale, not a baked px snapshot -- style.css derives
+    // font-size from this via calc() against rem/--md-type-body-sm, so it
+    // stays proportional to the type scale instead of freezing whatever
+    // --md-type-body-sm resolved to right now. Padding is NOT driven from
+    // here -- style.css's --face-pill-padding is in em, relative to the
+    // font-size this produces, so the pill conforms to the chosen font
+    // size on its own rather than being sized independently of it.
+    root.style.setProperty('--face-pill-scale', (state.fontSize / 100).toFixed(3));
+    // A heavier weight is legible over the honeycomb art on its own --
+    // the font's own hinting handles the letterforms/spacing at that
+    // weight, no artificial outline or letter-spacing override needed.
+    root.style.setProperty('--face-pill-font-weight', state.fontWeight);
+    // Removed (not set to 0) when unchecked, so it falls back to
+    // :root.theme-dark's own automatic rule in style.css instead of
+    // pinning it to "never invert" -- this checkbox is only for
+    // previewing the inverted look on demand, not overriding the theme.
+    if (state.invertIcon) root.style.setProperty('--face-icon-invert', '1');
+    else root.style.removeProperty('--face-icon-invert');
+    // Opacity 0 collapses to 'none' rather than a technically-invisible
+    // 0-alpha border, so a 0-width layout box never gets reserved for a
+    // border nobody asked to see.
+    root.style.setProperty('--face-pill-border', state.borderOpacity > 0
+      ? `${state.borderWidth}px solid ${hexToRgba(state.borderColor, state.borderOpacity)}`
+      : 'none');
+    if (out) out.textContent = JSON.stringify(state, null, 2);
+  }
+
+  function row(label, input) {
+    const r = document.createElement('label');
+    r.className = 'swatchRow';
+    r.style.justifyContent = 'space-between';
+    const span = document.createElement('span');
+    span.textContent = label;
+    r.appendChild(span);
+    r.appendChild(input);
+    return r;
+  }
+  function colorInput(key) {
+    const inp = document.createElement('input');
+    inp.type = 'color';
+    inp.value = state[key];
+    inp.addEventListener('input', () => { state[key] = inp.value; apply(); });
+    return inp;
+  }
+  function rangeInput(key, min, max, step) {
+    const inp = document.createElement('input');
+    inp.type = 'range'; inp.min = min; inp.max = max; inp.step = step; inp.value = state[key];
+    inp.style.width = '110px';
+    inp.addEventListener('input', () => { state[key] = parseFloat(inp.value); apply(); });
+    return inp;
+  }
+  function checkboxInput(key) {
+    const inp = document.createElement('input');
+    inp.type = 'checkbox';
+    inp.checked = state[key];
+    inp.addEventListener('change', () => { state[key] = inp.checked; apply(); });
+    return inp;
+  }
+
+  const panel = document.getElementById('advancedPanel');
+  if (!panel) return;
+
+  const title = document.createElement('div');
+  title.className = 'panel-label';
+  title.textContent = 'Face pill tuner';
+  panel.appendChild(title);
+
+  panel.appendChild(row('Pill color', colorInput('pillColor')));
+  panel.appendChild(row('Pill opacity', rangeInput('pillOpacity', 0, 100, 1)));
+  panel.appendChild(row('Font size', rangeInput('fontSize', 40, 150, 1)));
+  function divider() {
+    const hr = document.createElement('div');
+    hr.style.cssText = 'border-top:1px solid var(--md-color-outline-variant); margin:8px 0;';
+    return hr;
+  }
+  panel.appendChild(divider());
+  panel.appendChild(row('Font weight', rangeInput('fontWeight', 100, 900, 100)));
+  panel.appendChild(divider());
+  panel.appendChild(row('Preview inverted', checkboxInput('invertIcon')));
+  panel.appendChild(divider());
+  panel.appendChild(row('Border color', colorInput('borderColor')));
+  panel.appendChild(row('Border opacity', rangeInput('borderOpacity', 0, 100, 1)));
+  panel.appendChild(row('Border width', rangeInput('borderWidth', 1, 4, 1)));
+
+  out = document.createElement('pre');
+  out.style.cssText = 'margin-top:8px; font-size:10px; background:var(--md-color-surface-variant); color:var(--md-color-on-surface-variant); padding:6px; border-radius:var(--md-shape-xs); max-height:110px; overflow:auto; white-space:pre-wrap;';
+  panel.appendChild(out);
+
+  apply();
+})();

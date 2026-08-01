@@ -33,9 +33,22 @@
 <div class="page-content">
   <h1>{{ show.name }}</h1>
   <p class="page-sub">Pick a date to open its pinning sheet, or add a new one.</p>
+  <div class="entity-list-toolbar">
+    <button id="dateSortToggleBtn" class="btn btn-ghost date-sort-btn" type="button">Newest first</button>
+  </div>
   <div class="entity-list" id="dateList"></div>
   <form class="new-entity-form" id="newDateForm">
-    <input type="text" name="date" placeholder="New date (e.g. 7/8/2026)" maxlength="40" required>
+    <input type="date" name="date" id="newDateInput" required>
+    <!-- Same search-a-venue-fills-Address flow as the Date page's own
+         header fields (see selectVenueResult/openVenueSearch, app.js) --
+         reused here so a new date's venue+address can be nailed down once,
+         at creation, instead of creating the date first and then having to
+         go do this same search again from its own sidebar. -->
+    <div class="show-venue-search-wrap new-date-venue-wrap">
+      <input type="text" name="venue" id="newDateVenueInput" placeholder="Venue" maxlength="120">
+      <button id="newDateVenueSearchBtn" class="venue-search-btn" type="button" aria-label="Search for this venue">&#128269;</button>
+    </div>
+    <input type="text" name="address" id="newDateAddressInput" placeholder="Address (City, State)" maxlength="120">
     <button type="submit" class="btn btn-primary">Add date</button>
   </form>
   <button id="configureShowBtn" class="btn btn-primary show-settings-toggle" type="button">Configure Pinning Sheets</button>

@@ -275,6 +275,23 @@ def get_show(show_slug):
     return _read_json(show_meta_path(show_slug))
 
 
+
+# Formats the "New date" form's own placeholder (7/8/2026) actually
+# produces, plus a couple of near-misses (2-digit year, dashes instead of
+# slashes) so a typo in separator alone doesn't fall back to "unparseable".
+DATE_DISPLAY_FORMATS = ('%m/%d/%Y', '%m/%d/%y', '%m-%d-%Y', '%m-%d-%y', '%Y-%m-%d')
+
+
+def _parse_display_date(text):
+    text = (text or '').strip()
+    for fmt in DATE_DISPLAY_FORMATS:
+        try:
+            return datetime.strptime(text, fmt).date()
+        except ValueError:
+            continue
+    return None
+
+
 def list_dates(show_slug):
     root = dates_dir(show_slug)
     if not root.exists():
@@ -286,6 +303,16 @@ def list_dates(show_slug):
             continue
         ph = job.get('page_header') or {}
         out.append({'slug': d.name, 'date': ph.get('date') or d.name, 'venue': ph.get('venue', '')})
+    # Newest first by default (see the date list's own sort-toggle button,
+    # show.js) -- parses each entry's own display date (free text the SE
+    # typed when creating it), not the folder name, since the slug is just
+    # that text slugified and sorts alphabetically rather than
+    # chronologically (e.g. "7-8-2026" would otherwise land before
+    # "12-1-2025"). A date that doesn't parse (blank, or old test/manual
+    # data that isn't really a date) sinks to the very end instead of
+    # breaking the sort -- date_cls.min is smaller than any real date, and
+    # reverse=True below puts smallest last.
+    out.sort(key=lambda e: (_parse_display_date(e['date']) or date_cls.min, e['slug']), reverse=True)
     return out
 
 
@@ -708,13 +735,15 @@ def api_create_date(show_slug):
         return jsonify({'error': 'Show not found.'}), 404
     data = request.get_json(force=True, silent=True) or {}
     date_str = (data.get('date') or '').strip()
+    venue_str = (data.get('venue') or '').strip()
+    address_str = (data.get('address') or '').strip()
     if not date_str:
         return jsonify({'error': 'Date is required.'}), 400
     with STATE_LOCK:
         root = dates_dir(show_slug)
         existing = {d.name for d in root.iterdir() if d.is_dir()} if root.exists() else set()
         slug = unique_slug(slugify(date_str), existing)
-        job = build_job([], None, page_header={'title': show['name'], 'venue': '', 'address': '', 'date': date_str}, show=show)
+        job = build_job([], None, page_header={'title': show['name'], 'venue': venue_str, 'address': address_str, 'date': date_str}, show=show)
         save_job(show_slug, slug, job)
     return jsonify({'slug': slug})
 

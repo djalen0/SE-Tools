@@ -83,28 +83,35 @@
   --md-elevation-2: 0 2px 6px rgba(20, 22, 40, 0.08), 0 8px 24px rgba(20, 22, 40, 0.12);
   --md-elevation-3: 0 4px 10px rgba(20, 22, 40, 0.10), 0 16px 36px rgba(20, 22, 40, 0.16);
 
-  /* Type scale -- a rename, not a resize: every px value below is exactly
-     what that selector already used, just given a shared name instead of
-     being a private magic number. Deliberately NOT collapsed into fewer
-     sizes -- the print-fit engine (fitContentToPage/chooseGridPrintColumns
-     in app.js) measures real rendered text, so changing any of these
-     values (even by 1px) risks shifting its column/scale math. Where the
-     same selector legitimately takes a different size at a breakpoint or
-     in body.print-mode-grid, that's a different named step here, not the
+  /* Type scale -- a rename, not a resize: every value below resolves to
+     exactly the same rendered px that selector already used (rem against
+     the browser's 16px default, unchanged elsewhere in this file), just
+     given a shared name instead of being a private magic number.
+     Deliberately NOT collapsed into fewer sizes -- the print-fit engine
+     (fitContentToPage/chooseGridPrintColumns in app.js) measures real
+     rendered text via getBoundingClientRect(), which resolves rem to px
+     the same as it always did, so changing any of these values (even
+     slightly) risks shifting its column/scale math. Where the same
+     selector legitimately takes a different size at a breakpoint or in
+     body.print-mode-grid, that's a different named step here, not the
      same token reused -- e.g. .box-row is --md-type-body-sm by default,
      --md-type-label-md at the 700px breakpoint, --md-type-label-xs in
-     print-mode-grid. */
-  --md-type-display-sm: 20px;
-  --md-type-title-lg: 18px;
-  --md-type-title-md: 17px;
-  --md-type-title-sm: 16px;
-  --md-type-body-lg: 15px;
-  --md-type-body-md: 14px;
-  --md-type-body-sm: 13px;
-  --md-type-label-md: 12px;
-  --md-type-label-sm: 11px;
-  --md-type-label-xs: 10px;
-  --md-type-label-xxs: 9px;
+     print-mode-grid. rem, not px, so a future global type-scale change
+     (or a user zooming their OS/browser text size) only ever needs to
+     touch these 11 lines -- everything else in this file references them
+     by name, never a literal size, and now scales along with them instead
+     of staying pinned to a frozen pixel value. */
+  --md-type-display-sm: 1.25rem;    /* 20px */
+  --md-type-title-lg: 1.125rem;     /* 18px */
+  --md-type-title-md: 1.0625rem;    /* 17px */
+  --md-type-title-sm: 1rem;         /* 16px */
+  --md-type-body-lg: 0.9375rem;     /* 15px */
+  --md-type-body-md: 0.875rem;      /* 14px */
+  --md-type-body-sm: 0.8125rem;     /* 13px */
+  --md-type-label-md: 0.75rem;      /* 12px */
+  --md-type-label-sm: 0.6875rem;    /* 11px */
+  --md-type-label-xs: 0.625rem;     /* 10px */
+  --md-type-label-xxs: 0.5625rem;   /* 9px */
 }
 
 /* --- Dark mode ------------------------------------------------------------
@@ -617,10 +624,15 @@ button:focus-visible, input:focus-visible {
 .btn-primary { background: var(--md-color-primary); color: var(--md-color-on-primary); border-color: var(--md-color-primary); }
 .btn-primary:hover { background: var(--md-color-primary-hover); border-color: var(--md-color-primary-hover); }
 
-input[type=text], input[type=number] {
+input[type=text], input[type=number], input[type=date] {
   border: 1px solid var(--md-color-outline); border-radius: var(--md-shape-sm);
   padding: 6px 8px; font-size: var(--md-type-body-md); color: var(--md-color-on-surface); background: var(--md-color-surface);
 }
+/* Firefox/Chromium both paint the native calendar-icon button using
+   currentColor by default, which is unreadable against a dark theme
+   background -- forcing it light keeps the icon visible in both themes
+   without having to swap in a custom SVG date picker. */
+:root.theme-dark input[type=date]::-webkit-calendar-picker-indicator { filter: invert(1); }
 
 /* --- Home/Show list pages -------------------------------------------------
    Shared by home.html (a list of shows) and show.html (a list of dates
@@ -629,6 +641,12 @@ input[type=text], input[type=number] {
 .page-content { max-width: 640px; margin: 0 auto; padding: 24px 20px 60px; }
 .page-content h1 { font-size: var(--md-type-display-sm); font-weight: 700; margin: 0 0 4px; }
 .page-content .page-sub { font-size: var(--md-type-body-sm); color: var(--md-color-on-surface-variant); margin: 0 0 20px; }
+/* Only home.html's Show list and show.html's Date list within it share
+   .entity-list -- this toolbar (currently just the date-sort toggle) is
+   show.html-only, so it's a sibling of #dateList rather than baked into
+   .entity-list itself. */
+.entity-list-toolbar { display: flex; justify-content: flex-end; margin-bottom: 8px; }
+.date-sort-btn { padding: 6px 12px; font-size: var(--md-type-label-md); }
 .entity-list { display: flex; flex-direction: column; gap: 10px; margin-bottom: 20px; }
 .entity-card {
   display: flex; align-items: center; justify-content: space-between; gap: 12px;
@@ -648,6 +666,13 @@ input[type=text], input[type=number] {
   border-radius: var(--md-shape-md); box-shadow: var(--md-elevation-1); padding: 14px 16px; flex-wrap: wrap;
 }
 .new-entity-form input[type=text] { flex: 1; min-width: 160px; }
+.new-entity-form input[type=date] { flex: 1; min-width: 140px; }
+/* .show-venue-search-wrap normally rides inline in the Date page's own
+   compact borderless header (see .show-info-line2 in this file) -- reused
+   here for its search-dropdown anchoring/positioning only, so it needs its
+   own min-width to match this form's other bordered fields instead of
+   collapsing to content width. */
+.new-date-venue-wrap { min-width: 160px; }
 .show-settings-toggle { margin-top: 20px; }
 
 /* --- Login page ---------------------------------------------------------- */
@@ -861,6 +886,62 @@ input[type=text], input[type=number] {
 .box-cell { flex: 1; text-align: center; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 0 3px; }
 .field-label { flex: 0 0 32px; }
 .field-model { flex: 1.6; max-width: 150px; }
+/* Fixed height (rather than growing to fit the icon) so .box-row -- a
+   fixed-height flex container whose items DON'T stretch -- never has to
+   let this cell poke past the row's own border; the icon is clipped to
+   exactly this box instead. Print's dense 18px row resets it back to auto
+   below, since the icon itself is hidden there anyway. */
+.model-cell-wrap { position: relative; display: flex; align-items: center; justify-content: center; width: 100%; height: 28px; overflow: hidden; }
+/* Only renders when SPEAKER_FACE_ICONS (app.js) has an entry for the box's
+   model -- a plain text chip is still the fallback for everything else, so
+   this never reserves space it isn't using. Sits behind the chip (below),
+   which is the actual label -- this is decorative. */
+/* invert(var(--face-icon-invert)) -- 0 by default, flipped to 1 either by
+   :root.theme-dark below (automatic) or by the tuner's "Preview inverted"
+   checkbox setting the var inline on <html> (overrides the class rule,
+   for previewing either state regardless of the site's actual theme). */
+.speaker-face-icon { position: absolute; top: 0; left: 50%; transform: translateX(-50%); height: 100%; width: auto; max-width: none; object-fit: contain; filter: invert(var(--face-icon-invert)); }
+/* The grille art is neutral grays with a transparent background either
+   way, so a flat invert (no hue-rotate needed -- grays have no hue) is
+   enough to turn "dark lines on light" into "light lines on dark" for
+   dark mode, instead of the honeycomb texture nearly disappearing against
+   a dark card. */
+:root.theme-dark { --face-icon-invert: 1; }
+/* The chip stacks ON the icon (its own opaque .value-chip background is
+   what keeps "CO12 (80)" readable over the honeycomb art beneath it) --
+   width:auto here so it hugs the text as a badge instead of the full-width
+   bar every other .value-chip is. */
+/* Tunable via the Advanced settings panel (initFaceDesignTuner, bottom of
+   app.js) -- defaults here match its current preset (fully transparent
+   pill, no border, 124% font size, 600 weight), so removing that panel
+   later leaves the look unchanged. --face-pill-scale drives font-size
+   ONLY (via calc() against rem/--md-type-body-sm, not a standalone px) --
+   padding is in em, i.e. relative to THIS element's own resolved
+   font-size, so the pill's box always conforms to whatever font size ends
+   up in effect instead of being dialed separately and risking the two
+   drifting out of proportion. */
+:root {
+  --face-pill-bg: rgba(255, 255, 255, 0);
+  --face-pill-scale: 1.24;
+  --face-pill-font-size: calc(var(--md-type-body-sm) * var(--face-pill-scale));
+  --face-pill-padding: 0.31em 0.46em;
+  --face-pill-font-weight: 600;
+  --face-pill-border: none;
+  --face-icon-invert: 0;
+}
+.model-cell-wrap .value-chip {
+  position: relative; z-index: 1; width: auto; max-width: 100%;
+  background: var(--face-pill-bg);
+  padding: var(--face-pill-padding);
+  font-size: var(--face-pill-font-size);
+  /* Legibility over the honeycomb art comes from the font's own bolder
+     letterforms now, not an artificial outline -- no text-shadow/
+     letter-spacing hack needed, so nothing here fights the font's own
+     kerning the way compensating for a stroke's width used to. */
+  font-weight: var(--face-pill-font-weight);
+  border: var(--face-pill-border);
+}
+body.print-mode-grid .model-cell-wrap { height: auto; }
 .ckt-input {
   width: 44px; height: 32px; text-align: center; font-size: var(--md-type-body-md); font-weight: 800;
   border: 1px solid var(--md-color-outline); border-radius: var(--md-shape-sm);
@@ -1502,6 +1583,9 @@ body.print-mode-grid .meta-value { font-size: var(--md-type-label-sm); }
 body.print-mode-grid { --row-h: 18px; }
 body.print-mode-grid .box-row { font-size: var(--md-type-label-xs); padding: 0 6px; }
 body.print-mode-grid .box-cell { padding: 0 1px; }
+/* No room for it at an 18px row -- the text chip alone already has to
+   shrink to fit, so the icon just drops rather than getting squeezed. */
+body.print-mode-grid .speaker-face-icon { display: none; }
 body.print-mode-grid .card-title { font-size: var(--md-type-label-md); padding: 5px 6px; }
 body.print-mode-grid .value-chip,
 body.print-mode-grid .ckt-input { padding: 1px 3px; font-size: var(--md-type-label-sm); }
