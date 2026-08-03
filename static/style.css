@@ -700,6 +700,27 @@ input[type=text], input[type=number], input[type=date] {
   font-size: var(--md-type-body-sm);
 }
 .settingsPanel .swatchRow { display: flex; align-items: center; gap: 8px; margin: 10px 0; flex-wrap: wrap; }
+/* Same fix as .tag-override-label below, generalized -- every checkbox/
+   radio/number/text/select row built by swatchLabel() (config-fields.js)
+   wraps its label in this class instead of a bare text node specifically
+   so this can target it: flex:1 lets it claim the row's actual remaining
+   width instead of shrinking to its own min-content (the longest
+   unbreakable word), and min-width:0 lets it shrink below that min-content
+   size in the first place -- together, a long label wraps using the full
+   row width with at least its opening words staying inline next to the
+   input, rather than the whole label dropping to a misaligned new line. */
+/* flex-basis 0 (not auto) is the actual fix -- with auto, the browser
+   sizes the item for line-fitting purposes using its own max-content
+   width (the label rendered as one unbroken line), which is wider than
+   the row itself for any of these long labels, so the whole span got
+   pushed to a wrapped line of its own instead of sharing line one with
+   the checkbox. Basis 0 tells it to start at zero and grow to fill
+   whatever space is actually left on the current line, so text wrapping
+   only ever happens after that width is resolved -- keeping the label's
+   opening words inline next to the input the way min-width:0 alone (kept
+   here for the same shrink-below-content reason .tag-override-label
+   uses) didn't. */
+.swatch-label { flex: 1 1 0%; min-width: 0; }
 .panel-note { font-size: var(--md-type-label-sm); color: var(--md-color-on-surface-variant); margin: 0 0 10px; line-height: 1.4; }
 .show-all-tags-btn { margin-bottom: 8px; }
 .tag-override-row { justify-content: space-between; }
@@ -943,7 +964,7 @@ input[type=text], input[type=number], input[type=date] {
 }
 body.print-mode-grid .model-cell-wrap { height: auto; }
 .ckt-input {
-  width: 44px; height: 32px; text-align: center; font-size: var(--md-type-body-md); font-weight: 800;
+  width: 50px; height: 32px; text-align: center; font-size: var(--md-type-body-md); font-weight: 800;
   border: 1px solid var(--md-color-outline); border-radius: var(--md-shape-sm);
   /* !important on both -- the generic input[type=text] rule further up
      this file is an element+attribute selector, which actually beats a
@@ -965,12 +986,20 @@ body.print-mode-grid .model-cell-wrap { height: auto; }
    the box above. Stretching this one cell to the full row height fixes
    that: its top edge now IS the row's top edge, i.e. the actual border
    line shared with the box above. */
-.field-angle { flex: 0 0 46px; align-self: stretch; position: relative; overflow: visible; }
+.field-angle { flex: 0 0 54px; align-self: stretch; position: relative; overflow: visible; }
 /* field-circuit just centers the wrap (see .ckt-wrap below) -- the stripe
    and link icon no longer position off this cell at all, so this column
-   can be as wide as it likes (to fit NFC/link icon etc.) without dragging
-   them away from the actual CKT square. */
-.field-circuit { align-self: stretch; text-align: center; overflow: visible; max-width: 100px; }
+   can be as wide as it likes (to fit the link icon etc.) without dragging
+   them away from the actual CKT square. flex:1.3 (not the box-cell
+   default of 1) so it grows a bit faster than Model's 1.6 as the row
+   gains extra width, instead of Model soaking up most of it. */
+.field-circuit { flex: 1.3; align-self: stretch; text-align: center; overflow: visible; max-width: 120px; }
+/* NFC values are short (a couple digits, sometimes a sign or a unit
+   suffix -- "-6", "42m") -- fixed rather than flex:1 (the generic
+   .box-cell default) so it stops competing with Model/CKT for space it
+   doesn't need, which was squeezing Splay/CKT narrower than they need to
+   be on an otherwise ordinary card width. */
+.field-nfc { flex: 0 0 50px; max-width: 50px; }
 /* Sized to the CKT input itself (inline-block hugs its child's width)
    rather than the column -- the stripe and link icon anchor to THIS box,
    not .field-circuit, so they always hug the actual square regardless of
@@ -1044,7 +1073,7 @@ body.print-mode-grid .model-cell-wrap { height: auto; }
 .ink-pattern-5 { background-image: repeating-linear-gradient(0deg, rgba(0, 0, 0, 0.35) 0 2px, transparent 2px 6px); }
 .splay-value {
   position: absolute; top: 0; left: 50%; transform: translate(-50%, -50%);
-  width: 42px; height: 26px; box-sizing: border-box;
+  width: 48px; height: 26px; box-sizing: border-box;
   display: flex; align-items: center; justify-content: center;
   background: var(--md-color-chip-fixed); border: 1px solid var(--md-color-on-surface); border-radius: var(--md-shape-sm);
   font-size: var(--md-type-body-sm); line-height: 1; white-space: nowrap; z-index: 2;
@@ -1415,10 +1444,10 @@ body.print-mode-grid .card .meta-col {
   .box-cell { padding: 0 2px; }
   .box-row { font-size: var(--md-type-label-md); }
   .field-label { flex: 0 0 30px; }
-  .ckt-input { width: 34px; height: auto; font-size: var(--md-type-label-md); }
-  .field-angle { flex: 0 0 38px; }
+  .ckt-input { width: 40px; height: auto; font-size: var(--md-type-label-md); }
+  .field-angle { flex: 0 0 46px; }
   .circuit-set-stripe { width: 12px; }
-  .splay-value { width: 34px; height: 20px; font-size: var(--md-type-label-sm); }
+  .splay-value { width: 40px; height: 20px; font-size: var(--md-type-label-sm); }
   .value-chip { padding: 2px 6px; }
   /* Row layout (Side) puts the Data Bar in a fixed 230px strip beside a
      possibly-tall cabinet list -- narrower than Bottom mode gets, but

@@ -1136,7 +1136,7 @@ function renderHangDefinePopover(section) {
     cb.checked = !isTagHidden(key, section);
     cb.addEventListener('change', e => setCardTagOverride(section, key, !e.target.checked));
     row.appendChild(cb);
-    row.appendChild(document.createTextNode(' ' + label));
+    row.appendChild(swatchLabel(label));
     pop.appendChild(row);
   });
 
@@ -1609,8 +1609,12 @@ function renderCard(section, cfg, activePalette, cycleLen) {
   boxList.className = 'box-list';
 
   // 'dispersion' is folded into the 'model' column's own display (see
-  // formatModelDispersion) rather than getting a separate column.
-  const fields = (STATE.fields_enabled || []).filter(f => f !== 'dispersion');
+  // formatModelDispersion) rather than getting a separate column. NFC is
+  // available whenever the template defines it (fields_enabled), but can
+  // still be switched off per-show/per-date via the Colors panel's "Show
+  // NFC column" toggle (cfg.show_nfc, default on) -- same show-default-
+  // seeds-date-override cascade as every other Colors setting.
+  const fields = (STATE.fields_enabled || []).filter(f => f !== 'dispersion' && (f !== 'nfc' || cfg.show_nfc !== false));
 
   const headerRow = document.createElement('div');
   headerRow.className = 'box-row box-header';
@@ -1811,7 +1815,10 @@ function renderCard(section, cfg, activePalette, cycleLen) {
           cell.appendChild(val);
         }
       } else if (f === 'nfc') {
-        cell.appendChild(makeChip(cab.nfc || ''));
+        // No chip at all when there's no value, rather than an empty pill
+        // with nothing in it -- most boxes don't carry an NFC tag, so an
+        // empty pill on every one of those rows read as visual noise.
+        if (cab.nfc) cell.appendChild(makeChip(cab.nfc));
       } else {
         cell.appendChild(makeChip(cab[f] !== undefined ? cab[f] : ''));
       }
@@ -2051,7 +2058,7 @@ function renderLocalDataTagsPanel(panel) {
     cb.checked = !localHiddenTags.has(key);
     cb.addEventListener('change', e => setLocalTagHidden(key, !e.target.checked));
     row.appendChild(cb);
-    row.appendChild(document.createTextNode(' ' + label));
+    row.appendChild(swatchLabel(label));
     panel.appendChild(row);
   });
 }
@@ -2081,7 +2088,7 @@ function renderDataBarPanel() {
     radio.checked = current === value;
     radio.addEventListener('change', () => setDataBarModeOverride(value));
     row.appendChild(radio);
-    row.appendChild(document.createTextNode(' ' + label));
+    row.appendChild(swatchLabel(label));
     panel.appendChild(row);
   });
 }
@@ -2110,7 +2117,7 @@ function renderTrimUnitsPanel() {
     radio.checked = currentFormat === value;
     radio.addEventListener('change', () => setTrimUnitFormatOverride(value));
     row.appendChild(radio);
-    row.appendChild(document.createTextNode(' ' + label));
+    row.appendChild(swatchLabel(label));
     panel.appendChild(row);
   });
 
@@ -2132,7 +2139,7 @@ function renderTrimUnitsPanel() {
       radio.checked = currentPrecision === value;
       radio.addEventListener('change', () => setTrimInchesPrecisionOverride(value));
       row.appendChild(radio);
-      row.appendChild(document.createTextNode(' ' + label));
+      row.appendChild(swatchLabel(label));
       panel.appendChild(row);
     });
   }

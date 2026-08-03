@@ -22,6 +22,8 @@ const FLAT_FIELD_GROUPS = {
     { key: 'show_row_fill', type: 'checkbox', label: 'Show color across whole row',
       get: cfg => cfg.show_row_fill !== false },
     { key: 'ink_friendly_patterns', type: 'checkbox', label: 'Use ink-friendly patterns (for black & white printing)' },
+    { key: 'show_nfc', type: 'checkbox', label: 'Show NFC column',
+      get: cfg => cfg.show_nfc !== false },
     { key: 'show_speaker_icons', type: 'checkbox', label: 'Show speaker face icons (experimental, off by default)' },
     { key: 'hang_colors', type: 'match-color-list', label: "Hang identity stripes (matched against each card's title)" },
     { key: 'circuit_colors', type: 'color-list', label: 'Circuit colors' },
@@ -79,6 +81,23 @@ function resolveLabel(label, cfg) {
   return typeof label === 'function' ? label(cfg) : label;
 }
 
+// A bare text node dropped straight into a .swatchRow (flex row) shrinks
+// to fit based on its own min-content width (the longest unbreakable
+// word) rather than wrapping within whatever space the row actually has
+// -- on a long label in the sidebar's narrow width, that pushed the whole
+// label onto its own line, misaligned from the checkbox/radio next to it.
+// Wrapping it in its own flex:1/min-width:0 span (same fix
+// .tag-override-label already used, see style.css) lets it wrap normally
+// against the row's real width, keeping at least the label's opening
+// words inline with the input on every row, shared by every .swatchRow
+// builder in config-fields.js/app.js/show.js.
+function swatchLabel(text) {
+  const span = document.createElement('span');
+  span.className = 'swatch-label';
+  span.textContent = text;
+  return span;
+}
+
 function fieldValue(field, cfg) {
   return field.get ? field.get(cfg) : cfg[field.key];
 }
@@ -113,7 +132,7 @@ function renderFlatFieldList(container, fields, cfg, onChange) {
       cb.checked = !!fieldValue(field, cfg);
       cb.addEventListener('change', e => commit(field, e.target.checked));
       row.appendChild(cb);
-      row.appendChild(document.createTextNode(' ' + resolveLabel(field.label, cfg)));
+      row.appendChild(swatchLabel(resolveLabel(field.label, cfg)));
       container.appendChild(row);
       return;
     }
@@ -121,7 +140,7 @@ function renderFlatFieldList(container, fields, cfg, onChange) {
     if (field.type === 'number') {
       const row = document.createElement('div');
       row.className = 'swatchRow';
-      row.appendChild(document.createTextNode(resolveLabel(field.label, cfg)));
+      row.appendChild(swatchLabel(resolveLabel(field.label, cfg)));
       const input = document.createElement('input');
       input.type = 'number';
       input.min = field.min != null ? field.min : '';
@@ -136,7 +155,7 @@ function renderFlatFieldList(container, fields, cfg, onChange) {
     if (field.type === 'text') {
       const row = document.createElement('div');
       row.className = 'swatchRow';
-      row.appendChild(document.createTextNode(resolveLabel(field.label, cfg)));
+      row.appendChild(swatchLabel(resolveLabel(field.label, cfg)));
       const input = document.createElement('input');
       input.type = 'text';
       input.value = fieldValue(field, cfg);
@@ -150,7 +169,7 @@ function renderFlatFieldList(container, fields, cfg, onChange) {
     if (field.type === 'select') {
       const row = document.createElement('div');
       row.className = 'swatchRow';
-      row.appendChild(document.createTextNode(resolveLabel(field.label, cfg)));
+      row.appendChild(swatchLabel(resolveLabel(field.label, cfg)));
       const select = document.createElement('select');
       field.options(cfg).forEach(([value, text]) => {
         const opt = document.createElement('option');

@@ -305,7 +305,7 @@ function renderConfigTapeBurnOptions() {
   pane.appendChild(note);
   const row = document.createElement('div');
   row.className = 'swatchRow';
-  row.appendChild(document.createTextNode('Burn (ft):'));
+  row.appendChild(swatchLabel('Burn (ft):'));
   const input = document.createElement('input');
   input.type = 'number';
   input.step = '0.1';
@@ -335,7 +335,7 @@ function renderConfigTrimUnitsOptions() {
     radio.checked = CONFIG_DRAFT_TRIM_UNIT_FORMAT === value;
     radio.addEventListener('change', () => { CONFIG_DRAFT_TRIM_UNIT_FORMAT = value; renderConfigTrimUnitsOptions(); });
     row.appendChild(radio);
-    row.appendChild(document.createTextNode(' ' + label));
+    row.appendChild(swatchLabel(label));
     pane.appendChild(row);
   });
 
@@ -353,7 +353,7 @@ function renderConfigTrimUnitsOptions() {
       radio.checked = CONFIG_DRAFT_TRIM_INCHES_PRECISION === value;
       radio.addEventListener('change', () => { CONFIG_DRAFT_TRIM_INCHES_PRECISION = value; });
       row.appendChild(radio);
-      row.appendChild(document.createTextNode(' ' + label));
+      row.appendChild(swatchLabel(label));
       pane.appendChild(row);
     });
   }
@@ -379,7 +379,7 @@ function renderConfigDataTagsOptions() {
         : [...CONFIG_DRAFT_HIDDEN_TAGS, key];
     });
     row.appendChild(cb);
-    row.appendChild(document.createTextNode(' ' + label));
+    row.appendChild(swatchLabel(label));
     pane.appendChild(row);
   });
 }
@@ -400,7 +400,7 @@ function renderConfigDataBarOptions() {
     radio.checked = CONFIG_DRAFT_DATA_BAR_MODE === value;
     radio.addEventListener('change', () => { CONFIG_DRAFT_DATA_BAR_MODE = value; });
     row.appendChild(radio);
-    row.appendChild(document.createTextNode(' ' + label));
+    row.appendChild(swatchLabel(label));
     pane.appendChild(row);
   });
 }
