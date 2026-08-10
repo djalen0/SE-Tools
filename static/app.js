@@ -641,6 +641,38 @@ function assignCircuitSetColors(cabinets, palette, cycleLength, overrides, manua
   return assignment;
 }
 
+// Declaring a split/cable choice at `fromKey` (either forcing a new trunk
+// cable to start there, or picking that bundle's own cable number) is
+// meant to keep going -- Brown, Brown, Brown, ..., Red, Red, Red -- for
+// the rest of the hang, not just for the one bundle clicked. An SE is
+// "unlikely to ever split a cable and skip breakout connections and then
+// resume those connections further down" (i.e. go back to an earlier
+// color after a later one), so any hid_cable_overrides entry sitting on a
+// LATER bundle is almost always a leftover from before this split existed
+// -- it was pinned back when that bundle's position in the sequence meant
+// something different, and left stale, it silently overrides the
+// cascading default (current + 1) and makes downstream boxes look like
+// they never picked up the new color. Clearing those stale entries here
+// (every time a split/cable choice is made) lets the sequential default
+// take back over for everything after `fromKey`, all the way to the next
+// bundle the SE deliberately split off (hid_manual_breaks) -- THAT one is
+// a real second decision point, so it and everything after it are left
+// alone.
+function clearDownstreamOverrides(section, cfg, fromKey) {
+  const overrides = section.hid_cable_overrides;
+  if (!overrides) return;
+  const bundleSize = (cfg && cfg.hid_bundle_size) || 4;
+  const manualBreaks = new Set(section.hid_manual_breaks || []);
+  const bundles = hidBundleOrder(section.cabinets || [], bundleSize, manualBreaks);
+  const fromIndex = bundles.findIndex(bundle => bundle[0] === fromKey);
+  if (fromIndex === -1) return;
+  for (let i = fromIndex + 1; i < bundles.length; i++) {
+    const ownerKey = bundles[i][0];
+    if (manualBreaks.has(ownerKey)) break;
+    delete overrides[ownerKey];
+  }
+}
+
 // "Start on Breakout #" (Hang Define popover) is just a friendlier way to
 // set/read the SAME hid_cable_overrides entry the per-bundle stripe-click
 // override (above) writes -- specifically, the hang's first bundle.
@@ -693,6 +725,7 @@ function openTrunkStripeMenu(anchor, section, cfg, rowKey, ownerKey, isOwnerRow,
       const breaks = new Set(section.hid_manual_breaks || []);
       breaks.add(rowKey);
       section.hid_manual_breaks = Array.from(breaks);
+      clearDownstreamOverrides(section, cfg, rowKey);
       rerunNumbering();
       render();
       saveState(false);
@@ -711,6 +744,10 @@ function openTrunkStripeMenu(anchor, section, cfg, rowKey, ownerKey, isOwnerRow,
       const breaks = new Set(section.hid_manual_breaks || []);
       breaks.delete(ownerKey);
       section.hid_manual_breaks = Array.from(breaks);
+      if (section.hid_cable_overrides) delete section.hid_cable_overrides[ownerKey];
+      const mergedBundle = hidBundleOrder(section.cabinets || [], (cfg.hid_bundle_size || 4), breaks)
+        .find(bundle => bundle.includes(ownerKey));
+      if (mergedBundle) clearDownstreamOverrides(section, cfg, mergedBundle[0]);
       rerunNumbering();
       render();
       saveState(false);
@@ -735,6 +772,7 @@ function openTrunkStripeMenu(anchor, section, cfg, rowKey, ownerKey, isOwnerRow,
       section.hid_cable_overrides = section.hid_cable_overrides || {};
       if (n > 0) section.hid_cable_overrides[ownerKey] = n;
       else delete section.hid_cable_overrides[ownerKey];
+      clearDownstreamOverrides(section, cfg, ownerKey);
       render();
       saveState(false);
     });
