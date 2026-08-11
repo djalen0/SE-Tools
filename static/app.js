@@ -897,6 +897,7 @@ function renderSaveHangProfileForm(pane, addBtn, section) {
     HANG_PROFILES.push(profile);
     section.hang_profile_id = profile.id;
     section.hang_profile_version = profile.version;
+    await ensureHangProfileKnowsSection(profile, section);
     render();
     saveState(false);
   });
@@ -966,10 +967,11 @@ function renderHangDefinePopover(section) {
   const applyBtn = document.createElement('button');
   applyBtn.type = 'button';
   applyBtn.textContent = 'Apply';
-  applyBtn.addEventListener('click', () => {
+  applyBtn.addEventListener('click', async () => {
     const profile = HANG_PROFILES.find(p => p.id === select.value);
     if (!profile) return;
     applyHangProfileToSection(section, profile);
+    await ensureHangProfileKnowsSection(profile, section);
     render();
     saveState(false);
   });
@@ -2685,6 +2687,20 @@ function normalizeHangIdentity(header) {
   return (header || '').replace(PAIR_SUFFIX_RE, '').trim().toLowerCase().replace(/\s+/g, ' ');
 }
 
+// Whether some saved Hang Profile already answers to a given (normalized)
+// hang name -- checked against the profile's own `name` first, then its
+// learned `aliases` (see the match-confirmation dialog below, and the
+// aliases endpoint in app.py). Used both for the upload-time suggestion and
+// to decide whether confirming a match there needs to POST a new alias at
+// all, or already knows this name.
+function findHangProfileMatch(key) {
+  const byName = HANG_PROFILES.find(p => normalizeHangIdentity(p.name) === key);
+  if (byName) return { profile: byName, reason: 'name' };
+  const byAlias = HANG_PROFILES.find(p => (p.aliases || []).some(a => normalizeHangIdentity(a) === key));
+  if (byAlias) return { profile: byAlias, reason: 'alias' };
+  return null;
+}
+
 // Every per-hang setting that isn't parsed straight from the file --
 // carried forward by reconcileUploadedSections when a re-uploaded hang's
 // name matches one that already had it dialed in. Anything NOT in this
@@ -2705,10 +2721,11 @@ const HANG_CARRY_FORWARD_FIELDS = [
 // appear, so if a name repeats (two hangs both called "SUB"), the Nth new
 // occurrence matches the Nth old one rather than every new one grabbing
 // the same old section. A hang with no old-section match at all (new to
-// this Date, or renamed since the last upload -- see the chat writeup)
-// instead checks saved Hang Profiles by name, so a hang the SE always
-// calls e.g. "16 Sub - Start Brown" auto-relinks even the very first time
-// it shows up on a given Date.
+// this Date, or renamed since the last upload) is left for the caller --
+// see the returned `unresolved` list and maybeShowHangProfileMatchDialog --
+// rather than silently auto-linking a Hang Profile here, so the SE gets a
+// chance to see and confirm/change the guess instead of it happening
+// invisibly.
 function reconcileUploadedSections(oldSections, newSections) {
   const cfg = STATE.circuit_color_config;
   const bundleSize = (cfg && cfg.hid_bundle_size) || 4;
@@ -2718,6 +2735,7 @@ function reconcileUploadedSections(oldSections, newSections) {
     (oldByName[key] = oldByName[key] || []).push(s);
   });
 
+  const unresolved = [];
   (newSections || []).forEach(newSection => {
     const key = normalizeHangIdentity(newSection.header);
     const pool = oldByName[key];
@@ -2737,19 +2755,18 @@ function reconcileUploadedSections(oldSections, newSections) {
         applyHiDNumbering([newSection], bundleSize);
       }
     } else {
-      const profile = HANG_PROFILES.find(p => normalizeHangIdentity(p.name) === key);
-      if (profile) {
-        applyHangProfileToSection(newSection, profile);
-      } else if (cfg && cfg.numbering_mode === 'hid') {
-        // Brand-new hang, no saved profile to carry a number scheme in from
-        // either -- still has to pick up the show/date's own Hi-D default
-        // (reverse leg order included, via resolveHidReverseOrder), the
-        // same as every other branch above already does.
+      // Brand-new hang, nothing carried forward -- still has to pick up the
+      // show/date's own Hi-D default (reverse leg order included, via
+      // resolveHidReverseOrder) so the sheet isn't left unnumbered while the
+      // SE decides on a Hang Profile in the dialog. A profile applied there
+      // afterward re-derives this anyway if it changes anything.
+      if (cfg && cfg.numbering_mode === 'hid') {
         applyHiDNumbering([newSection], bundleSize);
       }
+      unresolved.push(newSection);
     }
   });
-  return newSections;
+  return { sections: newSections, unresolved };
 }
 
 async function uploadFile(file) {
@@ -2769,10 +2786,182 @@ async function uploadFile(file) {
   // build_job in app.py) -- reconcile by hang name against what was on
   // screen before this upload, then save that merge back over it so a
   // reload doesn't lose it again.
-  reconcileUploadedSections(oldSections, STATE.sections || []);
+  const { unresolved } = reconcileUploadedSections(oldSections, STATE.sections || []);
   render();
   saveState(false);
   flashStatus('Loaded ' + file.name);
+  maybeShowHangProfileMatchDialog(unresolved);
+}
+
+// Teaches a Hang Profile one more pinning-sheet name it should be suggested
+// for next time (see findHangProfileMatch) -- fire-and-await from the match
+// dialog's Confirm handler, never from anywhere version-sensitive, since
+// this deliberately does NOT bump the profile's version (see app.py).
+async function addHangProfileAlias(profileId, name) {
+  try {
+    const res = await fetch('/api/hang-profiles/' + encodeURIComponent(profileId) + '/aliases', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name }),
+    });
+    return res.ok ? await res.json() : null;
+  } catch (e) {
+    return null; // best-effort -- worst case, this same hang gets asked again next upload
+  }
+}
+
+// Called from every place a Hang Profile actually gets linked to a hang --
+// not just the upload match-confirmation dialog below, but also the Hang
+// Define popover's "Apply a profile..." and "Save as new profile..."
+// controls (renderHangDefinePopover/renderSaveHangProfileForm), since
+// that's how most profiles get attached to a hang in the first place. Without
+// this, a profile only ever auto-suggests on some later, different Date if
+// its typed name happens to exactly equal that sheet's parsed hang name --
+// which is exactly the gap that left the association not carrying between
+// event days of the same show.
+async function ensureHangProfileKnowsSection(profile, section) {
+  const key = normalizeHangIdentity(section.section_name || section.header);
+  const alreadyKnown = normalizeHangIdentity(profile.name) === key
+    || (profile.aliases || []).some(a => normalizeHangIdentity(a) === key);
+  if (alreadyKnown) return;
+  const updated = await addHangProfileAlias(profile.id, section.section_name || section.header);
+  if (updated) {
+    const idx = HANG_PROFILES.findIndex(p => p.id === updated.id);
+    if (idx !== -1) HANG_PROFILES[idx] = updated;
+    profile.aliases = updated.aliases;
+  }
+}
+
+// Entry point from uploadFile: of the hangs this upload couldn't carry
+// forward from an old section (brand new to this Date, or renamed), figures
+// out which ones a saved Hang Profile would be suggested for. If nothing
+// matched anything, there's nothing to confirm -- stay silent rather than
+// popping a dialog full of "No profile" rows on every routine first upload.
+function maybeShowHangProfileMatchDialog(sections) {
+  const rows = (sections || []).map(section => {
+    // section_name (no "N. " ordinal prefix, unlike header) is what a saved
+    // profile's name/aliases actually get compared against -- a profile
+    // named "16 Sub - Start Brown" means that regardless of which position
+    // it lands in on a given file, not only when it happens to be hang #16.
+    const key = normalizeHangIdentity(section.section_name || section.header);
+    const match = findHangProfileMatch(key);
+    return { section, key, suggested: match ? match.profile : null };
+  });
+  if (!rows.some(r => r.suggested)) return;
+  renderHangProfileMatchDialog(rows);
+}
+
+// The confirmation dialog itself -- one row per unresolved hang, each with a
+// dropdown defaulted to its suggested profile (or "No profile" if nothing
+// matched, so the SE can still assign one by hand while they're here).
+// Built entirely in JS (like showNextHangProfileMismatch's banner) rather
+// than templated into index.html, since it only ever needs to exist while
+// open. Reuses the .modal-backdrop/.modal-box/.modal-header/.modal-body/
+// .modal-footer shell show.js's Configure Show modal already established,
+// so it looks and behaves the same without new base CSS.
+function renderHangProfileMatchDialog(rows) {
+  const backdrop = document.createElement('div');
+  backdrop.className = 'modal-backdrop';
+
+  const box = document.createElement('div');
+  box.className = 'modal-box hang-match-modal';
+  box.setAttribute('role', 'dialog');
+  box.setAttribute('aria-modal', 'true');
+  backdrop.appendChild(box);
+
+  const header = document.createElement('div');
+  header.className = 'modal-header';
+  const title = document.createElement('h2');
+  title.textContent = 'Hang Profile matches';
+  header.appendChild(title);
+  const closeBtn = document.createElement('button');
+  closeBtn.type = 'button';
+  closeBtn.className = 'modal-close-btn';
+  closeBtn.setAttribute('aria-label', 'Close');
+  closeBtn.innerHTML = '&times;';
+  closeBtn.addEventListener('click', close);
+  header.appendChild(closeBtn);
+  box.appendChild(header);
+
+  const body = document.createElement('div');
+  body.className = 'modal-body';
+  const list = document.createElement('div');
+  list.className = 'hang-match-list';
+  body.appendChild(list);
+  box.appendChild(body);
+
+  const intro = document.createElement('p');
+  intro.className = 'hang-match-intro';
+  intro.textContent = 'These hangs are new to this Date. Confirm, change, or clear the Hang Profile each one should use.';
+  list.appendChild(intro);
+
+  rows.forEach(row => {
+    const rowEl = document.createElement('div');
+    rowEl.className = 'hang-match-row';
+
+    const nameEl = document.createElement('div');
+    nameEl.className = 'hang-match-name';
+    nameEl.textContent = row.section.section_name || row.section.header;
+    rowEl.appendChild(nameEl);
+
+    const select = document.createElement('select');
+    const noneOpt = document.createElement('option');
+    noneOpt.value = '';
+    noneOpt.textContent = 'No profile';
+    select.appendChild(noneOpt);
+    HANG_PROFILES.forEach(p => {
+      const opt = document.createElement('option');
+      opt.value = p.id;
+      opt.textContent = p.name;
+      select.appendChild(opt);
+    });
+    select.value = row.suggested ? row.suggested.id : '';
+    row.select = select;
+    rowEl.appendChild(select);
+
+    list.appendChild(rowEl);
+  });
+
+  const footer = document.createElement('div');
+  footer.className = 'modal-footer';
+  const cancelBtn = document.createElement('button');
+  cancelBtn.type = 'button';
+  cancelBtn.className = 'btn btn-ghost';
+  cancelBtn.textContent = 'Cancel';
+  cancelBtn.addEventListener('click', close);
+  footer.appendChild(cancelBtn);
+  const confirmBtn = document.createElement('button');
+  confirmBtn.type = 'button';
+  confirmBtn.className = 'btn btn-primary';
+  confirmBtn.textContent = 'Confirm';
+  confirmBtn.addEventListener('click', async () => {
+    confirmBtn.disabled = true;
+    const aliasWork = [];
+    rows.forEach(row => {
+      const profile = HANG_PROFILES.find(p => p.id === row.select.value);
+      if (!profile) return;
+      applyHangProfileToSection(row.section, profile);
+      aliasWork.push(ensureHangProfileKnowsSection(profile, row.section));
+    });
+    await Promise.all(aliasWork);
+    close();
+    render();
+    saveState(false);
+  });
+  footer.appendChild(confirmBtn);
+  box.appendChild(footer);
+
+  function close() {
+    document.removeEventListener('keydown', onKeydown);
+    backdrop.remove();
+  }
+  function onKeydown(e) {
+    if (e.key === 'Escape') close();
+  }
+  backdrop.addEventListener('click', e => { if (e.target === backdrop) close(); });
+  document.addEventListener('keydown', onKeydown);
+
+  document.body.appendChild(backdrop);
 }
 
 function flashStatus(msg) {

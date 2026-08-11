@@ -334,7 +334,10 @@ def save_profiles(profiles):
 
 
 def load_hang_profiles():
-    return (_read_json(HANG_PROFILES_FILE) or {}).get('profiles', [])
+    profiles = (_read_json(HANG_PROFILES_FILE) or {}).get('profiles', [])
+    for profile in profiles:
+        profile.setdefault('aliases', [])
+    return profiles
 
 
 def save_hang_profiles(profiles):
@@ -849,6 +852,12 @@ def api_apply_platform_profile(show_slug):
 # version check) to notice the mismatch and ask the SE whether to update
 # that hang or detach it, rather than silently rewriting every hang that
 # ever used it.
+#
+# A profile also carries `aliases` (pinning-sheet hang names it should be
+# suggested for on upload, see reconcileUploadedSections/the match dialog in
+# app.js) -- deliberately NOT one of the HANG_PROFILE_FIELDS below, since
+# learning a new name a profile answers to shouldn't bump `version` and
+# prompt every hang already linked to it to re-confirm.
 
 HANG_PROFILE_FIELDS = (
     'start_breakout', 'hid_reverse_order', 'tape_burn_ft',
@@ -876,7 +885,7 @@ def api_create_hang_profile():
     with STATE_LOCK:
         profiles = load_hang_profiles()
         existing = {p['id'] for p in profiles}
-        profile = {'id': unique_slug(slugify(name), existing), 'name': name, 'version': 1}
+        profile = {'id': unique_slug(slugify(name), existing), 'name': name, 'version': 1, 'aliases': []}
         for field in HANG_PROFILE_FIELDS:
             profile[field] = data.get(field, HANG_PROFILE_DEFAULTS[field])
         profiles.append(profile)
@@ -911,6 +920,31 @@ def api_delete_hang_profile(profile_id):
             return jsonify({'error': 'Profile not found.'}), 404
         save_hang_profiles(remaining)
     return jsonify({'ok': True})
+
+
+# Learns one more pinning-sheet hang name a profile should auto-match on a
+# future upload (see the match-confirmation dialog in app.js) -- kept as its
+# own endpoint, rather than folded into the general PATCH above, specifically
+# so it does NOT bump `version`. Recognizing an extra name for a profile
+# doesn't change anything about a hang that's already linked to it, so there's
+# nothing for any other linked hang to be asked to update.
+@app.route('/api/hang-profiles/<profile_id>/aliases', methods=['POST'])
+def api_add_hang_profile_alias(profile_id):
+    data = request.get_json(force=True, silent=True) or {}
+    alias = (data.get('name') or '').strip()
+    if not alias:
+        return jsonify({'error': 'Alias name is required.'}), 400
+    with STATE_LOCK:
+        profiles = load_hang_profiles()
+        profile = next((p for p in profiles if p['id'] == profile_id), None)
+        if not profile:
+            return jsonify({'error': 'Profile not found.'}), 404
+        aliases = profile.setdefault('aliases', [])
+        known = {profile['name'].lower()} | {a.lower() for a in aliases}
+        if alias.lower() not in known:
+            aliases.append(alias)
+        save_hang_profiles(profiles)
+    return jsonify(profile)
 
 
 # --- Per-date job APIs ----------------------------------------------------
