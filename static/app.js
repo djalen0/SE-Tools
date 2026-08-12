@@ -88,6 +88,13 @@ async function loadHangProfiles() {
 // edit inside the popover, which is why this lives at module scope instead.
 let openHangDefineSection = null;
 
+// The pick-group divider currently being dragged (see the drag handle/
+// dragover/drop handlers in renderCard and movePickBreak) -- module scope
+// for the same reason as openHangDefineSection above: renderCard rebuilds
+// the whole card mid-drag-lifecycle-events would otherwise lose it. Cleared
+// on drop and on dragend (covers a drag released outside any valid target).
+let pickDragState = null;
+
 // Data Bar (the Mode/Aim/Trim/Angle/etc. panel) placement -- Date override
 // beats Show default beats null ("no override, use the automatic
 // card-width-driven placement" -- see the "Data Bar mode" CSS rules).
@@ -232,6 +239,19 @@ function resolveTapeBurnFt(section) {
   if (STATE && typeof STATE.tape_burn_override_ft === 'number') return STATE.tape_burn_override_ft;
   if (SHOW_META && typeof SHOW_META.tape_burn_default_ft === 'number') return SHOW_META.tape_burn_default_ft;
   return 0;
+}
+
+// Effective "boxes per pick" (cart height) for a hang -- hang's own
+// override (set directly or inherited from a linked Hang Profile) wins,
+// then falls back to this Date's cfg.pick_group_size (itself seeded from
+// the Show default), then 4. Same cascade shape as resolveTapeBurnFt,
+// except there's no separate Show/Date-override pair to check here since
+// pick_group_size already lives in circuit_color_config and cascades
+// through the normal Show-default-seeds-Date-override path -- this only
+// adds the one extra, more-specific layer: the hang itself.
+function resolvePickGroupSize(section, cfg) {
+  if (section && typeof section.pick_group_size === 'number') return section.pick_group_size;
+  return (cfg && cfg.pick_group_size) || 4;
 }
 
 // A tape measure missing its first foot or two reads that many feet long
@@ -502,6 +522,16 @@ function applyHangProfileToSection(section, profile) {
   section.tape_burn_ft = profile.tape_burn_ft;
   section.hang_color = profile.hang_color;
   section.hid_reverse_order = profile.hid_reverse_order !== false;
+  section.pick_group_size = typeof profile.pick_group_size === 'number' ? profile.pick_group_size : null;
+  // Position-keyed (cab.position), same as manual_circuit_pattern's own
+  // per-box indexing below -- lines up correctly when the target hang has
+  // the same box layout the profile was saved from (the common case,
+  // since that's usually WHY a profile got saved), degrades gracefully
+  // (a stray break/name landing on the wrong or no box) otherwise, same
+  // as any other profile field applied to a mismatched hang.
+  section.pick_manual_breaks = (profile.pick_manual_breaks || []).slice();
+  section.pick_manual_merges = (profile.pick_manual_merges || []).slice();
+  section.pick_group_names = Object.assign({}, profile.pick_group_names || {});
   section.hidden_tags_overrides = {};
   (profile.hidden_tags || []).forEach(key => { section.hidden_tags_overrides[key] = true; });
 
@@ -781,35 +811,141 @@ function openTrunkStripeMenu(anchor, section, cfg, rowKey, ownerKey, isOwnerRow,
   anchor.appendChild(dropdown);
 }
 
-// The menu opened by clicking a pick-group badge (A1, A2, ... B1, ...) --
-// unlike openTrunkStripeMenu above, there's only ever one possible action
-// (no cable-color list to also offer), since a pick group has nothing
-// analogous to pick from: `isGroupStart` true means this badge only
-// exists because of a manual override (a natural group start -- box-type
-// change or hitting the size cap -- never gets a clickable badge at all,
-// see renderCard), so the only sensible action is undoing it; false means
-// this is a mid-group box, so the only action is forcing a split here.
-// Reuses the exact same .hid-cable-dropdown/-option classes as the trunk
-// menu above -- it's the identical small-anchored-menu pattern, just with
-// one option instead of several.
-function openPickGroupMenu(anchor, section, cab, isGroupStart) {
+// The menu opened by clicking a pick-group badge (A1, A2, ... B1, ...).
+// Two independent things can live here: a rename field (every group start
+// gets one, including the very first box, since a name has nothing to do
+// with splitting/merging) and a split/merge action (only for `canSplitMerge`
+// -- i.e. every box past the very first, which is where openPickGroupMenu
+// is only ever called with it true). `isGroupStart` true means this box
+// currently starts a new pick, so the action is merging it back with the
+// previous one -- how that's stored depends on WHY it's a group start
+// (`isNatural`): a natural start (box-type change or hitting the size cap)
+// gets suppressed via pick_manual_merges, a manual one just gets removed
+// from pick_manual_breaks. `isGroupStart` false means this is a mid-group
+// box, so the action is forcing a split here (adds to breaks; see
+// movePickBreak for the drag-driven version of this same edit). Reuses the
+// exact same .hid-cable-dropdown/-option classes as the trunk menu above.
+//
+// `navList`/`navIndex` (both optional) are only used to wire up Tab/
+// Shift+Tab on the rename field so renaming every pick in a hang doesn't
+// need a fresh click each time -- see makePickGroupNameLabel's call site
+// (pickGroupList in renderCard) for what a navList entry looks like.
+function openPickGroupMenu(anchor, section, cab, isGroupStart, isNatural, canSplitMerge, navList, navIndex, defaultLabel) {
   const existing = anchor.querySelector('.hid-cable-dropdown');
   if (existing) { existing.remove(); return; }
   const dropdown = document.createElement('div');
   dropdown.className = 'hid-cable-dropdown';
-  const opt = document.createElement('div');
-  opt.className = 'hid-cable-dropdown-option';
-  opt.textContent = isGroupStart ? 'Undo split (merge with previous pick)' : 'Start new pick here';
-  opt.addEventListener('click', e => {
-    e.stopPropagation();
-    const breaks = new Set(section.pick_manual_breaks || []);
-    if (isGroupStart) breaks.delete(cab.position); else breaks.add(cab.position);
-    section.pick_manual_breaks = Array.from(breaks);
-    render();
-    saveState(false);
-  });
-  dropdown.appendChild(opt);
+  let nameInputToFocus = null;
+
+  if (isGroupStart) {
+    const nameInput = document.createElement('input');
+    nameInput.type = 'text';
+    nameInput.className = 'pick-group-name-menu-input';
+    nameInput.placeholder = 'Name this pick (optional)';
+    nameInput.value = (section.pick_group_names || {})[cab.position] || '';
+    nameInput.addEventListener('click', e => e.stopPropagation());
+    // Shared between blur (the 'change' listener below) and Tab (the
+    // keydown listener further down): writes the typed value into the
+    // data model AND updates the stripe label's own text/orientation
+    // directly, in place, rather than calling the global render() --
+    // render() rebuilds the ENTIRE page's DOM, which (a) would detach
+    // every row/cab reference already captured in navList (including
+    // `next`, needed immediately after this during a Tab move) before
+    // openPickGroupMenu ever got to append anything to it -- a real,
+    // intermittent bug during testing, not just theoretical -- and (b)
+    // is a lot of work for updating one piece of text. `anchor` is this
+    // pick's own row (where its label actually lives, see
+    // makePickGroupNameLabel), so it's always the right place to look,
+    // Tab-triggered or not.
+    const commitName = () => {
+      const v = nameInput.value.trim();
+      const names = Object.assign({}, section.pick_group_names || {});
+      if (v) names[cab.position] = v; else delete names[cab.position];
+      section.pick_group_names = names;
+      const label = anchor.querySelector('.pick-group-name-label');
+      if (label) {
+        const shown = v || defaultLabel;
+        label.textContent = shown;
+        label.title = shown;
+        label.classList.toggle('pick-group-name-label-horizontal', pickNameFitsHorizontally(shown));
+      }
+    };
+    // Named (not inline) specifically so the Tab handler below can detach
+    // it before removing this input -- removing a still-focused, value-
+    // changed input can synchronously fire ITS OWN 'change' via the
+    // implicit blur that causes, which would run commitName() a harmless
+    // second time but call saveState() redundantly right as a fresh
+    // fetch for the SAME data is already in flight from the Tab handler.
+    const onChange = () => {
+      commitName();
+      saveState(false);
+    };
+    nameInput.addEventListener('change', onChange);
+    // Tab/Shift+Tab hops straight to the next/previous pick's OWN rename
+    // field instead of wherever plain tab order would otherwise land, so
+    // renaming a whole hang's worth of picks is just type, Tab, type,
+    // Tab... Falls through to normal tab behavior at either end of the
+    // list (no preventDefault) rather than trapping focus with nowhere
+    // to go.
+    if (navList) {
+      nameInput.addEventListener('keydown', ev => {
+        if (ev.key !== 'Tab') return;
+        const nextIndex = navIndex + (ev.shiftKey ? -1 : 1);
+        const next = navList[nextIndex];
+        if (!next) return;
+        ev.preventDefault();
+        commitName();
+        saveState(false);
+        nameInput.removeEventListener('change', onChange);
+        dropdown.remove();
+        openPickGroupMenu(next.row, section, next.cab, true, next.isNatural, next.canSplitMerge, navList, nextIndex, next.defaultLabel);
+      });
+    }
+    dropdown.appendChild(nameInput);
+    nameInputToFocus = nameInput;
+  }
+
+  if (canSplitMerge) {
+    const opt = document.createElement('div');
+    opt.className = 'hid-cable-dropdown-option';
+    opt.textContent = isGroupStart ? 'Merge with previous pick' : 'Start new pick here';
+    opt.addEventListener('click', e => {
+      e.stopPropagation();
+      if (isGroupStart) {
+        if (isNatural) {
+          const merges = new Set(section.pick_manual_merges || []);
+          merges.add(cab.position);
+          section.pick_manual_merges = Array.from(merges);
+        } else {
+          const breaks = new Set(section.pick_manual_breaks || []);
+          breaks.delete(cab.position);
+          section.pick_manual_breaks = Array.from(breaks);
+        }
+      } else {
+        const breaks = new Set(section.pick_manual_breaks || []);
+        breaks.add(cab.position);
+        section.pick_manual_breaks = Array.from(breaks);
+        const merges = new Set(section.pick_manual_merges || []);
+        if (merges.delete(cab.position)) section.pick_manual_merges = Array.from(merges);
+      }
+      render();
+      saveState(false);
+    });
+    dropdown.appendChild(opt);
+  }
+
   anchor.appendChild(dropdown);
+  // Only meaningful once the input is actually part of the live document
+  // -- focus()/select() on a still-detached element (i.e. called before
+  // this appendChild) silently do nothing, which is exactly the bug this
+  // ordering fixes. Selected, not just focused -- clicking a pick you
+  // already named means "I want to change this," so the existing text
+  // should be ready to type straight over, not require a manual
+  // select-all first.
+  if (nameInputToFocus) {
+    nameInputToFocus.focus();
+    nameInputToFocus.select();
+  }
 }
 
 // Opens/closes this hang's Hang Define popover -- see openHangDefineSection
@@ -844,6 +980,10 @@ async function updateLinkedProfile(section, profile) {
     hang_color: section.hang_color || null,
     rename_to: section.header,
     hidden_tags: allTagsWithLabels().map(t => t.key).filter(key => isTagHidden(key, section)),
+    pick_group_size: typeof section.pick_group_size === 'number' ? section.pick_group_size : null,
+    pick_manual_breaks: section.pick_manual_breaks || [],
+    pick_manual_merges: section.pick_manual_merges || [],
+    pick_group_names: section.pick_group_names || {},
   };
   const res = await fetch('/api/hang-profiles/' + encodeURIComponent(profile.id), {
     method: 'PATCH',
@@ -886,6 +1026,10 @@ function renderSaveHangProfileForm(pane, addBtn, section) {
       hang_color: section.hang_color || null,
       rename_to: section.header,
       hidden_tags: allTagsWithLabels().map(t => t.key).filter(key => isTagHidden(key, section)),
+      pick_group_size: typeof section.pick_group_size === 'number' ? section.pick_group_size : null,
+      pick_manual_breaks: section.pick_manual_breaks || [],
+      pick_manual_merges: section.pick_manual_merges || [],
+      pick_group_names: section.pick_group_names || {},
     };
     const res = await fetch('/api/hang-profiles', {
       method: 'POST',
@@ -1068,6 +1212,44 @@ function renderHangDefinePopover(section) {
   });
   burnRow.appendChild(burnInput);
   pop.appendChild(burnRow);
+
+  // Per-hang override for "how many boxes ride on one cart" -- some models
+  // stack 4 high, some 3, some more; the Pick Groups panel's own
+  // pick_group_size is just the show/date-wide typical value (see
+  // resolvePickGroupSize). Empty means "use that show/date default",
+  // same null-cascade convention as Tape Burn above. Also carried by Hang
+  // Profiles (see HANG_PROFILE_FIELDS in app.py/applyHangProfileToSection)
+  // so a profile like "Sub Stack - 3 High" can set it once and reuse it.
+  const pickSizeRow = document.createElement('div');
+  pickSizeRow.className = 'hang-define-row';
+  const pickSizeLabel = document.createElement('label');
+  pickSizeLabel.textContent = 'Boxes per pick (cart height)';
+  pickSizeRow.appendChild(pickSizeLabel);
+  const pickSizeInput = document.createElement('input');
+  pickSizeInput.type = 'number';
+  pickSizeInput.min = 1;
+  const showDefaultPickSize = (STATE.circuit_color_config && STATE.circuit_color_config.pick_group_size) || 4;
+  pickSizeInput.placeholder = `Show default (${showDefaultPickSize})`;
+  if (typeof section.pick_group_size === 'number') pickSizeInput.value = section.pick_group_size;
+  pickSizeInput.addEventListener('change', e => {
+    const n = parseInt(e.target.value, 10);
+    section.pick_group_size = Number.isFinite(n) && n > 0 ? n : null;
+    render();
+    saveState(false);
+  });
+  pickSizeRow.appendChild(pickSizeInput);
+  if (typeof section.pick_group_size === 'number') {
+    const clearPickSizeBtn = document.createElement('button');
+    clearPickSizeBtn.type = 'button';
+    clearPickSizeBtn.textContent = 'Use show default';
+    clearPickSizeBtn.addEventListener('click', () => {
+      section.pick_group_size = null;
+      render();
+      saveState(false);
+    });
+    pickSizeRow.appendChild(clearPickSizeBtn);
+  }
+  pop.appendChild(pickSizeRow);
 
   const manualRow = document.createElement('label');
   manualRow.className = 'hang-define-row';
@@ -1495,24 +1677,141 @@ const SPEAKER_FACE_ICONS = {
 // long run of one type (a pick can't be arbitrarily tall). `manualBreaks`
 // (a Set of cab.position values, the same stable per-box identity
 // hid_manual_breaks uses cab._normalCkt for) forces an early split for the
-// rare pick that doesn't follow either signal on its own.
-function computePickGroups(cabinets, maxSize, manualBreaks) {
+// rare pick that doesn't follow either signal on its own. `manualMerges` is
+// the opposite override -- it suppresses a break that would otherwise
+// happen naturally (type change or hitting the size cap), letting the SE
+// drag a divider line past a natural boundary (e.g. combine the last box
+// of one model with the first of the next onto one cart). A position can
+// only ever be in one of the two sets at a time (see movePickBreak); an
+// explicit break always wins over a merge at the same position.
+function computePickGroups(cabinets, maxSize, manualBreaks, manualMerges) {
   const breaks = manualBreaks || new Set();
+  const merges = manualMerges || new Set();
   const size = Math.max(1, maxSize || 4);
   const groups = [];
   let current = [];
   let lastType = null;
   (cabinets || []).forEach(cab => {
     const type = formatModelDispersion(cab);
-    const shouldBreak = current.length > 0 && (
-      current.length >= size || type !== lastType || breaks.has(cab.position)
-    );
+    const natural = current.length > 0 && (current.length >= size || type !== lastType);
+    const shouldBreak = current.length > 0 && (breaks.has(cab.position) || (natural && !merges.has(cab.position)));
     if (shouldBreak) { groups.push(current); current = []; }
     current.push(cab);
     lastType = type;
   });
   if (current.length) groups.push(current);
   return groups;
+}
+
+// Drags a pick-group divider line from one box to another -- the two-sided
+// version of what openPickGroupMenu's single option does at one position:
+// releases whatever's holding the line at `fromPos` (undoes a manual break,
+// or suppresses a natural one via a merge) and establishes it at `toPos`
+// (adds a manual break, unless `toPos` is ALREADY a group start under the
+// hang's current, fully-overridden grouping, in which case there's nothing
+// to add). Caller (the drop handler in renderCard) is responsible for
+// render()/saveState(); a no-op if dropped back on its own starting
+// position.
+//
+// `currentManualBreaks` and `toAlreadyBreaks` MUST come from the same live
+// pickInfo/pickBreaksSet this render already computed for the hang (with
+// every existing override applied) -- NOT a freshly-recomputed "natural,
+// no overrides at all" baseline. An earlier version used exactly that kind
+// of override-free baseline to decide both sides of this edit, and it went
+// stale the moment a second break/merge existed anywhere else in the hang:
+// upstream overrides shift how many boxes have accumulated by the time the
+// loop reaches `toPos`, so whether a break happens there naturally in the
+// CURRENT grouping can differ from what an override-free recomputation
+// says. When the stale check said "natural" but the live grouping no
+// longer broke there, the code deleted a merge entry that was never set
+// and never added an explicit break -- the divider silently never
+// reappeared, however many times it was dragged. Reading both sides off
+// the same live computation the row is already rendering from removes
+// that mismatch entirely, whatever the resulting group sizes end up being
+// (a pick of 1 or 2 is exactly as valid as one at the size cap).
+function movePickBreak(section, currentManualBreaks, fromPos, toPos, toAlreadyBreaks) {
+  if (fromPos === toPos) return;
+  const breaks = new Set(section.pick_manual_breaks || []);
+  const merges = new Set(section.pick_manual_merges || []);
+  if (currentManualBreaks.has(fromPos)) breaks.delete(fromPos);
+  else merges.add(fromPos);
+  merges.delete(toPos);
+  if (!toAlreadyBreaks) breaks.add(toPos);
+  section.pick_manual_breaks = Array.from(breaks);
+  section.pick_manual_merges = Array.from(merges);
+}
+
+// Same font-family stack as the page itself (see body's font-family) --
+// used only for the canvas measurement below, which needs an explicit
+// font string rather than inherited CSS.
+const PICK_NAME_FONT_STACK = '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif';
+let pickNameMeasureCtx = null;
+
+// Whether `name` reads fine set normally (horizontal, one line) within the
+// narrow horizontal space the stripe actually gives it, rather than needing
+// to run sideways up/down the stripe instead. Measured with a scratch
+// <canvas> 2D context (created once, reused) rather than a real DOM
+// insert-and-measure round trip -- this runs once per named pick on every
+// render, and canvas text metrics are the same layout engine Chrome uses
+// for real text, just without paying for a reflow to get them. 10px/700 here
+// has to track .pick-group-name-label's own font-size/font-weight in
+// style.css, and the 16px budget is that label's fixed 22px width minus
+// its own left/right padding -- both live here instead of reading them
+// back out of computed style, since the label isn't attached to the
+// document yet at the point this needs an answer.
+function pickNameFitsHorizontally(name) {
+  if (!pickNameMeasureCtx) pickNameMeasureCtx = document.createElement('canvas').getContext('2d');
+  pickNameMeasureCtx.font = `700 10px ${PICK_NAME_FONT_STACK}`;
+  return pickNameMeasureCtx.measureText(name).width <= 16;
+}
+
+// A pick's optional name (e.g. "SL Cart"), rendered directly on the hang
+// stripe rather than as its own row in the box list -- reusing the same
+// "child of the group's first box row, escaped left via right:100% into
+// the stripe" trick the drag grip already uses (see .pick-group-drag-
+// handle), just stretched down to cover that whole pick's height instead
+// of sitting on one row -- calc(var(--row-h) * groupCabs.length): .box-row
+// is border-box with height: var(--row-h), so N consecutive rows occupy
+// exactly N * var(--row-h) with no gap to account for. Short names
+// (pickNameFitsHorizontally) stay upright and read normally; longer ones
+// that can't fit the stripe's own width rotate sideways instead, trading
+// readability at a glance for not getting clipped. NOT gated on
+// isPrintMode() -- this is real sheet content, not just an editing aid,
+// so it has to survive into the exported PDF looking the same as it does
+// on screen; only the click-to-edit affordance below is edit-only.
+//
+// Clicking ANYWHERE on this label -- not just some precise sliver of it --
+// opens rename/merge for the pick's own first box (an earlier version
+// tried resolving a different target box from the click's exact Y
+// position, so a click lower in a tall label could reach "start a new
+// pick here" instead; that made the far more common action, renaming,
+// unreliable to trigger on a label that visually reads as ONE thing, not
+// a stack of separately-clickable slots). Adding a brand new split
+// partway through an existing pick is still fully reachable -- drag a
+// neighboring pick's grip into this one (see movePickBreak) -- just not
+// from this label anymore.
+// `navList`/`navIndex` are passed straight through to openPickGroupMenu to
+// wire up Tab/Shift+Tab between picks' rename fields; `defaultLabel` (the
+// plain letter shown when unnamed) rides along too, so a Tab-triggered
+// clear-to-empty knows what to fall back to displaying without needing a
+// full render() -- see openPickGroupMenu's commitName. Returns null for an
+// unnamed pick.
+function makePickGroupNameLabel(section, groupCabs, name, row, isNatural, groupStartCanSplitMerge, navList, navIndex, defaultLabel) {
+  if (!name) return null;
+  const label = document.createElement('div');
+  label.className = 'pick-group-name-label';
+  if (pickNameFitsHorizontally(name)) label.classList.add('pick-group-name-label-horizontal');
+  label.style.height = `calc(var(--row-h) * ${Math.max(1, groupCabs.length)})`;
+  label.textContent = name;
+  label.title = name;
+  if (!isPrintMode()) {
+    label.classList.add('pick-group-name-label-editable');
+    label.addEventListener('click', ev => {
+      ev.stopPropagation();
+      openPickGroupMenu(row, section, groupCabs[0], true, isNatural, groupStartCanSplitMerge, navList, navIndex, defaultLabel);
+    });
+  }
+  return label;
 }
 
 // Spreadsheet-style letters (A, B, ..., Z, AA, AB, ...) for a pick group's
@@ -1529,21 +1828,25 @@ function pickGroupLetter(index) {
   return out;
 }
 
-// cab -> "A1"/"A2"/... label, plus the Set of cabs that start a new group
-// (for both the divider styling and deciding which badge gets the
-// "start/undo a split" click affordance) -- computed once per section,
-// same pattern as circuitFillMap/circuitSetFillMap above.
-function computePickLabels(cabinets, maxSize, manualBreaks) {
+// cab -> "A1"/"A2"/... label, the Set of cabs that start a new group (for
+// both the divider styling and deciding which badge gets the "start/undo
+// a split" click affordance), and each group-start cab's own box count
+// (sizes -- used to size that pick's name label on the hang stripe, see
+// makePickGroupNameLabel, to exactly the height its boxes occupy) --
+// computed once per section, same pattern as circuitFillMap/
+// circuitSetFillMap above.
+function computePickLabels(cabinets, maxSize, manualBreaks, manualMerges) {
   const labels = new Map();
   const groupStarts = new Set();
-  computePickGroups(cabinets, maxSize, manualBreaks).forEach((group, gi) => {
+  const sizes = new Map();
+  computePickGroups(cabinets, maxSize, manualBreaks, manualMerges).forEach((group, gi) => {
     const letter = pickGroupLetter(gi);
     group.forEach((cab, pi) => {
       labels.set(cab, `${letter}${pi + 1}`);
-      if (pi === 0) groupStarts.add(cab);
+      if (pi === 0) { groupStarts.add(cab); sizes.set(cab, group.length); }
     });
   });
-  return { labels, groupStarts };
+  return { labels, groupStarts, sizes };
 }
 
 // Lots of sim software bakes a trailing "(Pair)" marker right into a
@@ -1694,19 +1997,179 @@ function renderCard(section, cfg, activePalette, cycleLen) {
   // they're physically stacked and hoisted (A1-A4, B1-B4, ...), and the
   // two don't have to line up even though they often happen to.
   const pickBreaksSet = new Set(section.pick_manual_breaks || []);
+  const pickMergesSet = new Set(section.pick_manual_merges || []);
+  const pickSize = resolvePickGroupSize(section, cfg);
   const pickInfo = cfg.pick_group_enabled
-    ? computePickLabels(section.cabinets, cfg.pick_group_size || 4, pickBreaksSet)
-    : { labels: new Map(), groupStarts: new Set() };
+    ? computePickLabels(section.cabinets, pickSize, pickBreaksSet, pickMergesSet)
+    : { labels: new Map(), groupStarts: new Set(), sizes: new Map() };
+  // Optional per-pick name (e.g. "SL Cart"), keyed by the position of that
+  // group's first box -- same stable-identity convention pick_manual_breaks/
+  // pick_manual_merges use, since a group has no ID of its own (it's
+  // recomputed fresh every render from the cabinets + breaks/merges/size).
+  // Rendered sideways on the hang stripe (see makePickGroupNameLabel) so
+  // naming a pick costs no extra vertical space in the box list; edited via
+  // the same dropdown the split/merge actions already use (see
+  // openPickGroupMenu), not inline here.
+  const pickGroupNames = section.pick_group_names || {};
+  // Every valid drop target row, collected as we build them below -- the
+  // divider grip and pick name labels now sit visually on the hang-stripe
+  // bar (see .pick-group-drag-handle/.pick-group-name-label in style.css),
+  // which is a separate element off to the side of box-list, not an
+  // ancestor/descendant of any box-row. A native dragover/drop only
+  // reaches whatever DOM element is actually under the cursor -- and since
+  // a name label now visually covers its WHOLE pick's height (not just its
+  // own row), between the two of them they cover almost the entire stripe,
+  // so this fallback isn't an edge case, it's most of a real drag. Hence
+  // this list and the two helpers right below, which map the cursor's
+  // clientY back to whichever collected row it's nearest to -- attached to
+  // `bar` once after the loop AND to every name label as it's created (see
+  // attachPickDropListeners), so the whole stripe behaves as one
+  // continuous drop surface regardless of what's visually on top of it at
+  // any given point.
+  const pickDropTargets = [];
+  // Every group-start's {row, cab, isNatural, canSplitMerge}, in hang
+  // order, collected as labels are built below -- lets a rename field's
+  // Tab/Shift+Tab (see openPickGroupMenu) jump straight to the next/
+  // previous pick's own rename field instead of wherever plain tab order
+  // would land. Same "still being filled in while later closures already
+  // capture it, but nothing reads it until a real event fires after
+  // render() returns" reasoning as pickDropTargets itself.
+  const pickGroupList = [];
+  const clearPickDragOver = () => pickDropTargets.forEach(t => {
+    t.overlay.classList.remove('pick-drag-over');
+    t.row.classList.remove('pick-drag-over');
+  });
+  const nearestPickDropTarget = clientY => {
+    let best = null;
+    let bestDist = Infinity;
+    pickDropTargets.forEach(t => {
+      const r = t.row.getBoundingClientRect();
+      const dist = clientY < r.top ? r.top - clientY : clientY > r.bottom ? clientY - r.bottom : 0;
+      if (dist < bestDist) { bestDist = dist; best = t; }
+    });
+    return best;
+  };
+  // `pickDropTargets` is only fully populated once the loop below finishes,
+  // but every listener attached here only ever READS it at event-fire time
+  // (long after render() has returned), so defining/attaching these before
+  // the loop is done is safe -- same reasoning as pickDragState itself
+  // being read at call time, not definition time.
+  const attachPickDropListeners = el => {
+    el.addEventListener('dragover', ev => {
+      if (!pickDragState || pickDragState.section !== section) return;
+      ev.preventDefault();
+      const target = nearestPickDropTarget(ev.clientY);
+      clearPickDragOver();
+      if (target) {
+        target.overlay.classList.add('pick-drag-over');
+        target.row.classList.add('pick-drag-over');
+      }
+    });
+    el.addEventListener('dragleave', clearPickDragOver);
+    el.addEventListener('drop', ev => {
+      if (!pickDragState || pickDragState.section !== section) return;
+      ev.preventDefault();
+      clearPickDragOver();
+      const target = nearestPickDropTarget(ev.clientY);
+      if (!target) return;
+      movePickBreak(section, pickBreaksSet, pickDragState.fromPos, target.cab.position, pickInfo.groupStarts.has(target.cab));
+      pickDragState = null;
+      render();
+      saveState(false);
+    });
+  };
 
   section.cabinets.forEach((cab, i) => {
     const row = document.createElement('div');
     row.className = 'box-row';
-    // A visible divider above every pick group's first box (except the
-    // very first box overall, which has no group above it to divide from)
-    // -- the badge in the label column (below) carries the actual A1/B1/
-    // etc. text, this is just the "new physical stack starts here" line.
-    if (cfg.pick_group_enabled && i > 0 && pickInfo.groupStarts.has(cab)) {
-      row.classList.add('pick-group-start');
+    // The "new physical stack starts here" line has two halves now, kept
+    // in sync via the same two class names (.pick-group-start solid,
+    // .pick-drag-over dashed) on two different elements:
+    //  - Across the TABLE: a plain border-top on `row` itself. A border
+    //    always paints behind an element's own children automatically, no
+    //    z-index needed -- this is what actually satisfies "underneath
+    //    the fields," for free, with none of the stacking-context
+    //    fragility a positioned overlay+negative-z-index would need (an
+    //    earlier version tried exactly that, and it also had the side
+    //    effect of trapping THIS row's own dropdown menus -- Hi-D/pick
+    //    -group ones -- inside a local stacking context, letting a later
+    //    sibling row paint over them instead of the dropdown floating
+    //    above like it needs to).
+    //  - Into the STRIPE: `dividerOverlay`, a small child of `row`
+    //    positioned right:100% (flush at row's own left edge, same trick
+    //    .pick-group-drag-handle/.pick-group-name-label use) extending
+    //    left far enough to be clipped by .card's own overflow:hidden at
+    //    the stripe's actual left edge, whatever that width happens to be.
+    //    This half never overlaps any table content at all -- it's
+    //    entirely to the left of `row`'s own box -- so it doesn't need any
+    //    z-index/stacking consideration either.
+    // Created for every row past the first whenever pick groups are on
+    // (not just current group-starts) since ANY of them can become a drop
+    // target's preview line during a drag; unset, both halves are
+    // transparent and invisible.
+    let dividerOverlay = null;
+    if (cfg.pick_group_enabled && i > 0) {
+      dividerOverlay = document.createElement('div');
+      dividerOverlay.className = 'pick-group-divider-overlay';
+      if (pickInfo.groupStarts.has(cab)) {
+        dividerOverlay.classList.add('pick-group-start');
+        row.classList.add('pick-group-start');
+      }
+      row.appendChild(dividerOverlay);
+    }
+    // A small grip on the divider itself -- click-and-drag it to any other
+    // row to move the split there in one gesture (movePickBreak does the
+    // same undo-old/establish-new edit openPickGroupMenu's single option
+    // does, just at two positions instead of one). A direct child of
+    // `row` (NOT dividerOverlay -- nesting it there would trap the grip's
+    // own z-index inside dividerOverlay's z-index:-1 layer, hiding it
+    // behind the row's fields same as the line itself). Skipped on paper
+    // -- dragging means nothing on a printed page.
+    if (cfg.pick_group_enabled && i > 0 && pickInfo.groupStarts.has(cab) && !isPrintMode()) {
+      const grip = document.createElement('div');
+      grip.className = 'pick-group-drag-handle';
+      grip.title = 'Drag to move this pick split';
+      grip.textContent = '⠿';
+      grip.draggable = true;
+      grip.addEventListener('click', ev => ev.stopPropagation());
+      grip.addEventListener('dragstart', ev => {
+        ev.stopPropagation();
+        pickDragState = { section, fromPos: cab.position };
+        ev.dataTransfer.effectAllowed = 'move';
+        ev.dataTransfer.setData('text/plain', String(cab.position));
+      });
+      grip.addEventListener('dragend', () => { pickDragState = null; });
+      row.appendChild(grip);
+    }
+    // Every row past the first is a valid drop target for a dragged split
+    // (dropping means "put the divider right above this box") -- gated on
+    // pickDragState belonging to THIS section so a drag started on one
+    // hang's card can't be dropped onto another's. Also collected into
+    // pickDropTargets for the stripe-wide fallback attached after the loop
+    // (see the comment on that array above) -- the cursor-over-the-table
+    // case below still works the exact same way it always did.
+    if (cfg.pick_group_enabled && i > 0 && !isPrintMode()) {
+      pickDropTargets.push({ row, overlay: dividerOverlay, cab });
+      row.addEventListener('dragover', ev => {
+        if (!pickDragState || pickDragState.section !== section) return;
+        ev.preventDefault();
+        dividerOverlay.classList.add('pick-drag-over');
+        row.classList.add('pick-drag-over');
+      });
+      row.addEventListener('dragleave', () => {
+        dividerOverlay.classList.remove('pick-drag-over');
+        row.classList.remove('pick-drag-over');
+      });
+      row.addEventListener('drop', ev => {
+        if (!pickDragState || pickDragState.section !== section) return;
+        ev.preventDefault();
+        dividerOverlay.classList.remove('pick-drag-over');
+        row.classList.remove('pick-drag-over');
+        movePickBreak(section, pickBreaksSet, pickDragState.fromPos, cab.position, pickInfo.groupStarts.has(cab));
+        pickDragState = null;
+        render();
+        saveState(false);
+      });
     }
     const fillEntry = circuitFillMap[cab._normalCkt !== undefined ? cab._normalCkt : cab.ckt];
     if (fillEntry && cfg.show_row_fill !== false) {
@@ -1801,35 +2264,38 @@ function renderCard(section, cfg, activePalette, cycleLen) {
         cell.appendChild(wrap);
       } else if (f === 'label') {
         cell.appendChild(makeChip(cab.position));
-        // Pick-group badge (A1, A2, ... B1, B2, ...) -- sits under the
-        // Cab # chip rather than replacing it, since Cab # is still the
-        // actual physical box identifier (NFC tags, tracking, etc.); this
-        // is purely an additional "which stack does this box belong to"
-        // cue. Only a mid-group box (can offer "start a new pick here")
-        // or a group start that only exists because of a manual override
-        // (can offer "undo") has anything to click into -- a natural
-        // group start (box-type change, or hit the size cap) has no
-        // action to take, so it's shown as a plain, non-interactive badge.
-        if (cfg.pick_group_enabled) {
+        // Everything about pick groups lives on the hang stripe, NOT in
+        // this table -- no badge, no button, nothing under the Cab #
+        // chip. A group-start box (i===0, or any later natural/manual
+        // split) gets a label on the stripe instead (see
+        // makePickGroupNameLabel): the custom name if one's set, else
+        // just the pick's own letter (A, B, C, ...) so a box's pick is
+        // still identifiable even unnamed. Clicking anywhere on that
+        // label opens rename/merge for the pick -- every pick-group
+        // action stays confined to the stripe, never the table.
+        if (cfg.pick_group_enabled && pickInfo.groupStarts.has(cab)) {
           const pickLabel = pickInfo.labels.get(cab);
-          if (pickLabel) {
-            const isGroupStart = pickInfo.groupStarts.has(cab);
-            const isManualBreak = isGroupStart && pickBreaksSet.has(cab.position);
-            const badge = document.createElement('div');
-            badge.className = 'pick-group-badge';
-            badge.textContent = pickLabel;
-            const clickable = !isGroupStart || isManualBreak;
-            if (clickable && !isPrintMode()) {
-              badge.classList.add('pick-group-badge-editable');
-              badge.title = isManualBreak
-                ? 'Manual pick split -- click to undo'
-                : 'Click to start a new pick here';
-              badge.addEventListener('click', ev => {
-                ev.stopPropagation();
-                openPickGroupMenu(cell, section, cab, isGroupStart);
-              });
-            }
-            cell.appendChild(badge);
+          const isManualBreak = i > 0 && pickBreaksSet.has(cab.position);
+          const isNatural = i > 0 && !isManualBreak;
+          // pickLabel is always "<letter>1" for a group-start box (pi===0
+          // in computePickLabels) -- stripping that trailing "1" gets
+          // just the letter, the fallback shown when no custom name is set.
+          const defaultLabel = pickLabel.slice(0, -1);
+          const groupCabs = section.cabinets.slice(i, i + pickInfo.sizes.get(cab));
+          pickGroupList.push({ row, cab: groupCabs[0], isNatural, canSplitMerge: i > 0, defaultLabel });
+          const navIndex = pickGroupList.length - 1;
+          const nameLabel = makePickGroupNameLabel(
+            section, groupCabs, pickGroupNames[cab.position] || defaultLabel, row, isNatural, i > 0, pickGroupList, navIndex, defaultLabel
+          );
+          if (nameLabel) {
+            row.appendChild(nameLabel);
+            // This label visually covers its whole pick's height, most of
+            // which belongs to OTHER rows than the one it's actually a
+            // DOM child of -- without its own listeners, a drag hovering
+            // over any of that (i.e. most of a real drag) would bubble to
+            // THIS row alone, never reaching whichever row the cursor is
+            // actually over. See attachPickDropListeners' own comment.
+            if (cfg.pick_group_enabled && !isPrintMode()) attachPickDropListeners(nameLabel);
           }
         }
       } else if (f === 'model') {
@@ -1866,6 +2332,12 @@ function renderCard(section, cfg, activePalette, cycleLen) {
     });
     boxList.appendChild(row);
   });
+
+  // Blank stripe background (not covered by any name label) still needs
+  // its own fallback -- see attachPickDropListeners/pickDropTargets'
+  // comment above for why. Every name label already got the same
+  // listeners individually as it was created, above.
+  if (cfg.pick_group_enabled && !isPrintMode() && pickDropTargets.length) attachPickDropListeners(bar);
 
   body.appendChild(boxList);
 
@@ -2710,7 +3182,7 @@ const HANG_CARRY_FORWARD_FIELDS = [
   'hang_profile_id', 'hang_profile_version', 'hid_reverse_order',
   'hid_manual_breaks', 'hid_cable_overrides', 'tape_burn_ft', 'hang_color',
   'hidden_tags_overrides', 'apply_manual_circuiting', 'manual_circuit_pattern',
-  'notes', 'pick_manual_breaks',
+  'notes', 'pick_manual_breaks', 'pick_manual_merges', 'pick_group_size', 'pick_group_names',
 ];
 
 // build_job (app.py) always rebuilds `sections` from scratch on upload,
@@ -3218,7 +3690,7 @@ document.addEventListener('click', e => {
 // field inside it triggers one until an option is actually picked), so
 // this just closes whatever instance happens to be open in the DOM.
 document.addEventListener('click', e => {
-  if (e.target.closest('.hid-cable-dropdown, .circuit-set-stripe-editable, .pick-group-badge-editable')) return;
+  if (e.target.closest('.hid-cable-dropdown, .circuit-set-stripe-editable, .pick-group-name-label-editable')) return;
   const open = document.querySelector('.hid-cable-dropdown');
   if (open) open.remove();
 });

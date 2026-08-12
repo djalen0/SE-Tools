@@ -844,14 +844,25 @@ def api_apply_platform_profile(show_slug):
 # per-show) snapshot of everything that varies hang-to-hang on tour --
 # which Hi-D cable it starts on, tape-burn footage, an optional manual
 # circuit-numbering pattern (e.g. cardioid subs wired 1,2,1), a direct
-# stripe color, a rename, and its Data Tags. Unlike Platform Profiles
-# (applied once, immediately, to a Show's own defaults), a Hang Profile is
-# *linked* to a specific hang (see hang_profile_id/hang_profile_version on
-# a section, set client-side) -- editing a linked profile here bumps
-# `version`, and it's up to the client (see the Date page's load-time
-# version check) to notice the mismatch and ask the SE whether to update
-# that hang or detach it, rather than silently rewriting every hang that
-# ever used it.
+# stripe color, a rename, its Data Tags, and the full pick-group setup:
+# how many boxes ride on one cart (pick_group_size, null = use the show/
+# date's own typical value -- see resolvePickGroupSize in app.js), any
+# manual splits/merges away from that default (pick_manual_breaks/
+# pick_manual_merges), and each pick's own name (pick_group_names, e.g.
+# "SL Cart"). The latter three are keyed by cab.position, same as
+# manual_circuit_pattern's own per-box indexing -- a profile like "16 Sub"
+# is worth saving BECAUSE it's the same box count/type sequence every time
+# it's used, so those positions carry over correctly in the common case;
+# applying it to a hang with a different box layout just means some of
+# them land on the wrong (or no) box, same graceful-degradation risk any
+# other profile field already has against a mismatched target hang.
+# Unlike Platform Profiles (applied once, immediately, to a Show's own
+# defaults), a Hang Profile is *linked* to a specific hang (see
+# hang_profile_id/hang_profile_version on a section, set client-side) --
+# editing a linked profile here bumps `version`, and it's up to the client
+# (see the Date page's load-time version check) to notice the mismatch and
+# ask the SE whether to update that hang or detach it, rather than
+# silently rewriting every hang that ever used it.
 #
 # A profile also carries `aliases` (pinning-sheet hang names it should be
 # suggested for on upload, see reconcileUploadedSections/the match dialog in
@@ -862,12 +873,14 @@ def api_apply_platform_profile(show_slug):
 HANG_PROFILE_FIELDS = (
     'start_breakout', 'hid_reverse_order', 'tape_burn_ft',
     'apply_manual_circuiting', 'manual_circuit_pattern', 'hang_color',
-    'rename_to', 'hidden_tags',
+    'rename_to', 'hidden_tags', 'pick_group_size',
+    'pick_manual_breaks', 'pick_manual_merges', 'pick_group_names',
 )
 HANG_PROFILE_DEFAULTS = {
     'start_breakout': 1, 'hid_reverse_order': True, 'tape_burn_ft': 0,
     'apply_manual_circuiting': False, 'manual_circuit_pattern': [], 'hang_color': None,
-    'rename_to': None, 'hidden_tags': [],
+    'rename_to': None, 'hidden_tags': [], 'pick_group_size': None,
+    'pick_manual_breaks': [], 'pick_manual_merges': [], 'pick_group_names': {},
 }
 
 

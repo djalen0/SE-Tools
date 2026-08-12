@@ -908,7 +908,7 @@ input[type=text], input[type=number], input[type=date] {
 }
 .card-body { display: flex; flex-direction: column; }
 .box-list { border-bottom: 1px solid var(--md-color-outline-variant); }
-.box-row { display: flex; height: var(--row-h); align-items: center; border-bottom: 1px solid var(--md-color-outline-variant); font-size: var(--md-type-body-sm); padding: 0 10px; box-sizing: border-box; }
+.box-row { position: relative; display: flex; height: var(--row-h); align-items: center; border-bottom: 1px solid var(--md-color-outline-variant); font-size: var(--md-type-body-sm); padding: 0 10px; box-sizing: border-box; }
 .box-header { font-weight: 700; background: var(--md-color-surface-variant); border-bottom: 1px solid var(--md-color-outline); }
 .box-header .box-cell { font-size: var(--md-type-label-sm); font-weight: 800; color: var(--md-color-on-surface-variant); text-transform: uppercase; letter-spacing: 0.04em; }
 /* The Splay/CKT columns stretch their body-row cells to the full row
@@ -1129,25 +1129,101 @@ body.print-mode-grid .model-cell-wrap { height: auto; }
   padding: 4px 6px; color: var(--md-color-chip-fixed-text) !important;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-/* Pick-group badge (A1, A2, ... B1, B2, ...) -- sits directly under the
-   Cab # chip above (which is width:100%, so this naturally wraps onto its
-   own line beneath it rather than needing a separate flex/grid wrapper).
-   Small and accent-colored so it reads as a secondary annotation, not
-   competing with the Cab # chip it sits under. See renderCard/
-   openPickGroupMenu in app.js. */
-.pick-group-badge {
-  display: inline-block; margin-top: 2px; font-size: var(--md-type-label-xs); font-weight: 700;
-  color: var(--md-color-primary); background: var(--md-color-primary-container);
-  border: 1px solid var(--md-color-primary); border-radius: var(--md-shape-sm);
-  padding: 1px 4px; line-height: 1.4;
-}
-.pick-group-badge-editable { cursor: pointer; }
-.pick-group-badge-editable:hover { background: var(--md-color-primary); color: var(--md-color-on-primary); }
-/* The actual "new physical stack starts here" divider -- a plain, always-
-   subtle border-bottom already separates every row (see .box-row), this
-   is a deliberately stronger line so a pick boundary reads as a different
-   kind of break at a glance, not just another row. */
+/* The actual "new physical stack starts here" divider -- two halves kept
+   in sync by the same class names on two different elements (see the
+   comment on dividerOverlay in renderCard/app.js for the full reasoning,
+   including why this used to be one element with a negative z-index, and
+   why that broke this row's own dropdown menus).
+   Across the table: a plain border-top on .box-row -- always paints
+   behind the row's own children automatically, no z-index needed. */
 .box-row.pick-group-start { border-top: 2px solid var(--md-color-primary); }
+.box-row.pick-drag-over { border-top: 2px dashed var(--md-color-primary); }
+/* Into the stripe: dividerOverlay, right:100% (flush at .box-row's own
+   left edge, same trick .pick-group-drag-handle/.pick-group-name-label
+   use below) with left pushed absurdly far, relying on .card's own
+   overflow:hidden to clip it back down to exactly the stripe's left edge
+   -- covers the stripe's full (percentage, breakpoint-dependent) width
+   with no measurement needed. Never overlaps any table content (it's
+   entirely to the left of .box-row's own box), so no z-index is needed
+   here either. Transparent and invisible until either state class below
+   colors it in. */
+.pick-group-divider-overlay {
+  position: absolute; top: -1px; left: -9999px; right: 100%; height: 0;
+  border-top: 2px solid transparent; pointer-events: none;
+}
+/* Settled split -- solid line. */
+.pick-group-divider-overlay.pick-group-start { border-top-color: var(--md-color-primary); }
+/* Live preview of where a dragged split will land -- dashed instead of
+   solid, so it reads as "not committed yet" even on a row that's ALSO
+   currently a settled divider (this rule comes after .pick-group-start
+   above, so it wins whichever state renders when both classes are on the
+   same overlay at once, which is a real case: dragging a split back onto
+   its own current row). */
+.pick-group-divider-overlay.pick-drag-over { border-top-color: var(--md-color-primary); border-top-style: dashed; }
+/* Grip on a pick-group divider's own line -- drag it to any other row to
+   move the split there (see the dragstart/dragover/drop handlers in
+   renderCard and movePickBreak). Vertically centered on the divider itself
+   (top:-1px, translateY(-50%)), same as before; horizontally it sits
+   flush against the row's own left edge (right:100%, no left/transform-x)
+   rather than centered over the row's text/fields. .box-row has no
+   padding between it and .card-content's own left edge, and .card-content
+   sits immediately right of .hang-stripe-bar with just its 1px border in
+   between -- so right:100% here lands the grip's right edge exactly on
+   that border, with its whole width extending left INTO the stripe,
+   rather than over the CAB/Model/Circuit columns it used to overlap. */
+.pick-group-drag-handle {
+  position: absolute; top: -1px; right: 100%; transform: translateY(-50%);
+  width: 22px; height: 14px; box-sizing: border-box;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--md-color-primary); color: var(--md-color-on-primary);
+  border-radius: var(--md-shape-full); font-size: 10px; line-height: 1;
+  cursor: grab; z-index: 3; user-select: none;
+}
+.pick-group-drag-handle:active { cursor: grabbing; }
+/* A pick's optional name (e.g. "SL Cart"), rendered on the hang stripe
+   instead of its own row in the box list -- see makePickGroupNameLabel in
+   app.js. Same escape-into-the-stripe trick as .pick-group-drag-handle
+   (right:100%, no left offset needed since .box-row's own left edge
+   already sits flush against the stripe's right border), just stretched
+   down via an inline height (set per-label in JS, calc(var(--row-h) *
+   that pick's own box count)) to cover the WHOLE pick instead of centering
+   on one row -- naming a pick costs zero extra vertical space in the box
+   list this way. Defaults to sideways (vertical-rl) since the stripe's
+   width is the tight dimension; .pick-group-name-label-horizontal (added
+   in JS when pickNameFitsHorizontally says the name is short enough) flips
+   it back to normal upright text instead, which reads far more easily at
+   a glance whenever there's room for it. A lower z-index than the grip (3)
+   and some top padding keep it from fighting the grip visually where the
+   two overlap at the very top of a divided pick. NOT gated on
+   isPrintMode() like the grip -- this is real sheet content, so it has to
+   survive into the exported PDF the same way it looks on screen; only the
+   click-to-rename affordance below is edit-only. */
+.pick-group-name-label {
+  position: absolute; top: -1px; right: 100%; width: 22px; box-sizing: border-box;
+  padding-top: 16px; overflow: hidden;
+  writing-mode: vertical-rl; text-orientation: mixed; text-align: center;
+  white-space: nowrap; text-overflow: ellipsis;
+  background: var(--md-color-primary-container); color: var(--md-color-primary);
+  font-size: var(--md-type-label-xs); font-weight: 700; line-height: 1.1;
+  z-index: 2; cursor: default;
+}
+.pick-group-name-label-horizontal {
+  writing-mode: horizontal-tb; text-orientation: initial;
+  display: flex; align-items: center; justify-content: center; text-overflow: clip;
+}
+.pick-group-name-label-editable { cursor: pointer; }
+.pick-group-name-label-editable:hover { background: var(--md-color-primary); color: var(--md-color-on-primary); }
+body.print-mode-grid .pick-group-name-label,
+body.print-mode-mobile .pick-group-name-label { font-size: 7px; padding-top: 3px; }
+/* Rename field inside the pick-group badge's own dropdown (see
+   openPickGroupMenu) -- same small-anchored-menu shell as the trunk-cable
+   menu (.hid-cable-dropdown), just with a text input above the split/
+   merge option instead of only option rows. */
+.pick-group-name-menu-input {
+  display: block; width: 100%; box-sizing: border-box; margin-bottom: 4px;
+  border: 1px solid var(--md-color-outline); border-radius: var(--md-shape-sm);
+  padding: 4px 6px; font: inherit; color: var(--md-color-on-surface); background: var(--md-color-surface);
+}
 /* A 2-column grid rather than flex-wrap -- flex-wrap sized each chip to
    its own content, so "Mode: Compression" and "Pick (F): 1" landed at
    wildly different widths and the whole column looked like a ragged pile

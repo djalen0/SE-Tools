@@ -60,7 +60,12 @@ default above in one snapshot: `circuit_color_config`, `hidden_tags`,
 Applied/saved from a hang's "Define" popover (⚙️ icon on each card) on the
 Date page. Fields: `start_breakout`, `hid_reverse_order`, `tape_burn_ft`,
 `apply_manual_circuiting`, `manual_circuit_pattern`, `hang_color`,
-`rename_to`, `hidden_tags` — see `HANG_PROFILE_FIELDS` in `app.py`.
+`rename_to`, `hidden_tags`, and the full pick-group setup —
+`pick_group_size`, `pick_manual_breaks`, `pick_manual_merges`,
+`pick_group_names` — see `HANG_PROFILE_FIELDS` in `app.py`. The last
+three are keyed by cab.position, same as `manual_circuit_pattern`'s own
+per-box indexing, so they carry over correctly when applied to a hang
+with the same box layout the profile was saved from (the common case).
 Version-tracked; a linked hang shows a mismatch banner if the profile
 changes elsewhere.
 
@@ -76,15 +81,36 @@ changes elsewhere.
 
 Apply/save a Hang Profile, **Start on Breakout #**, clear mid-hang trunk
 splits, **Descending leg order** (per-hang override of the show/date
-default), **Tape Burn (ft)** (per-hang override), **Apply Manual
-Circuiting** + pattern, **Hang Color**, hang name, **Notes**, per-tag Data
-Tags override.
+default), **Tape Burn (ft)** (per-hang override), **Boxes per pick / cart
+height** (per-hang override of `circuit_color_config.pick_group_size`,
+empty = use the show/date default — see `resolvePickGroupSize` in
+`app.js`), **Apply Manual Circuiting** + pattern, **Hang Color**, hang
+name, **Notes**, per-tag Data Tags override.
 
 ## Per-box / in-card controls
 
 CKT text input, trunk-stripe click menu (assign to cable / start new
-cable / undo split), pick-group click menu (start new pick / undo split),
-inline Tape Burn editor.
+cable / undo split), inline Tape Burn editor. Pick-group controls (see
+below) are the one exception to "per-box controls sit in the table" —
+they live entirely on the hang stripe instead, nothing under the Cab #
+column.
+
+## Pick-group controls (hang stripe only)
+
+Every pick gets one label on the stripe, spanning its own boxes' full
+height (`makePickGroupNameLabel` in `app.js`) — the custom name if one's
+set (`section.pick_group_names`, keyed by that pick's first box position,
+optional, e.g. "SL Cart"), else just its own letter (A, B, C, ...) so a
+box's pick is identifiable even unnamed. Costs no extra row height in the
+table either way. Clicking that label resolves WHICH box within the pick
+was actually clicked (by vertical position) and opens a menu for it:
+the pick's own first box offers rename plus merge-with-previous (works on
+both manual splits and natural ones — a box-type change or hitting the
+size cap — see `pick_manual_breaks`/`pick_manual_merges` on a section);
+any other box in the pick offers "start a new pick here". Dragging the
+divider grip (also on the stripe) moves an existing split to any other
+box in one gesture (`movePickBreak` in `app.js`). Prints onto the sheet
+the same way it looks on screen.
 
 ## Display / device-local (not persisted server-side)
 
