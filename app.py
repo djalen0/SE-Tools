@@ -394,6 +394,53 @@ def _fields_and_metadata_from_design():
     return fields_enabled, metadata_fields
 
 
+def _metadata_fields_for_job(sections, template_metadata_fields):
+    """
+    A job's actual on-screen/toggleable metadata-field list: the xlsx
+    template's own fields (Aim/Slider/Trim/...) plus metadata_registry.py's
+    extra, non-template fields (Distance to Base/Array dims/...), but only
+    the ones some section in THIS job actually has a value for -- rather
+    than every field either source can ever produce, unconditionally. That
+    "has data anywhere in this job" filter is what keeps an unrelated
+    manufacturer's fields out of the Data Tags toggle panel and the
+    per-hang metadata card: a Meyer show never lists Aim/Slider (Canvas-
+    only fields it never populates) and a Canvas show never lists Array
+    Depth (Meyer-only), instead of both always listing the full fixed
+    vocabulary and leaving most of it permanently, uselessly empty.
+
+    A brand-new Date with nothing uploaded yet (sections == []) has no
+    data to filter by, so it keeps the full template list -- there's
+    nothing to render either way until the first upload recomputes this.
+    """
+    if not sections:
+        return template_metadata_fields
+
+    from metadata_registry import EXTRA_METADATA_FIELDS
+    candidates = list(template_metadata_fields) + [
+        {'key': key, 'label': label} for key, label in EXTRA_METADATA_FIELDS
+    ]
+
+    present_keys = set()
+    for section in sections:
+        meta = section.get('metadata') or {}
+        for field in candidates:
+            key = field['key']
+            if key in present_keys:
+                continue
+            val = meta.get(key)
+            if val not in (None, '', []):
+                present_keys.add(key)
+
+    seen = set()
+    result = []
+    for field in candidates:
+        key = field['key']
+        if key in present_keys and key not in seen:
+            seen.add(key)
+            result.append(field)
+    return result
+
+
 def build_job(sections, source_name, page_header=None, show=None):
     """
     Fresh job -- for a brand new Date (sections=[], source_name=None,
@@ -408,6 +455,7 @@ def build_job(sections, source_name, page_header=None, show=None):
     """
     prefs = load_prefs()
     fields_enabled, metadata_fields = _fields_and_metadata_from_design()
+    metadata_fields = _metadata_fields_for_job(sections, metadata_fields)
     show_cfg = show.get('circuit_color_config') if show else None
     return {
         'source_file': source_name,
