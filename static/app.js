@@ -2313,11 +2313,16 @@ function renderCard(section, cfg, activePalette, cycleLen) {
         cell.appendChild(wrap);
       } else if (f === 'angle') {
         // Box 1 (topmost/reference) has no box above it, so it gets no
-        // splay value at all -- same convention as the Excel output.
-        if (i > 0 && cab.splay) {
-          const val = document.createElement('div');
+        // splay value at all -- same convention as the Excel output. Every
+        // other box gets an editable badge (not just when it already has a
+        // value) so a blank or wrong splay reading can be typed in/fixed
+        // straight from the card, same as the CKT input just to its right.
+        if (i > 0) {
+          const val = document.createElement('input');
+          val.type = 'text';
+          val.value = cab.splay || '';
           val.className = 'splay-value';
-          val.textContent = cab.splay;
+          val.addEventListener('change', e => { cab.splay = e.target.value; render(); });
           cell.appendChild(val);
         }
       } else if (f === 'nfc') {

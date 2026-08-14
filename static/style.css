@@ -1086,10 +1086,19 @@ body.print-mode-grid .model-cell-wrap { height: auto; }
 }
 .ink-pattern-4 { background-image: repeating-linear-gradient(90deg, rgba(0, 0, 0, 0.35) 0 2px, transparent 2px 6px); }
 .ink-pattern-5 { background-image: repeating-linear-gradient(0deg, rgba(0, 0, 0, 0.35) 0 2px, transparent 2px 6px); }
-.splay-value {
+/* Now an <input>, not a plain div (see renderCard in app.js), so its
+   splay reading can be corrected straight from the card. Selector is
+   scoped under .field-angle (0,2,0 specificity) rather than bare
+   .splay-value (0,1,0) purely to beat the generic "input[type=text]"
+   rule (0,1,1) further up this file -- see .ckt-input's own comment on
+   the exact same problem -- without resorting to !important, which
+   would also silently defeat the (equally non-!important) mobile/print
+   font-size overrides below since an !important declaration always
+   wins over a non-!important one regardless of specificity. */
+.field-angle .splay-value {
   position: absolute; top: 0; left: 50%; transform: translate(-50%, -50%);
-  width: 48px; height: 26px; box-sizing: border-box;
-  display: flex; align-items: center; justify-content: center;
+  width: 48px; height: 26px; box-sizing: border-box; padding: 0;
+  text-align: center;
   background: var(--md-color-chip-fixed); border: 1px solid var(--md-color-on-surface); border-radius: var(--md-shape-sm);
   font-size: var(--md-type-body-sm); line-height: 1; white-space: nowrap; z-index: 2;
   /* Always dark text on this badge's own opaque white background,
@@ -1538,7 +1547,7 @@ body.print-mode-grid .card .meta-col {
   .ckt-input { width: 40px; height: auto; font-size: var(--md-type-label-md); }
   .field-angle { flex: 0 0 46px; }
   .circuit-set-stripe { width: 12px; }
-  .splay-value { width: 40px; height: 20px; font-size: var(--md-type-label-sm); }
+  .field-angle .splay-value { width: 40px; height: 20px; font-size: var(--md-type-label-sm); }
   .value-chip { padding: 2px 6px; }
   /* Row layout (Side) puts the Data Bar in a fixed 230px strip beside a
      possibly-tall cabinet list -- narrower than Bottom mode gets, but
@@ -1709,4 +1718,4 @@ body.print-mode-grid .speaker-face-icon { display: none; }
 body.print-mode-grid .card-title { font-size: var(--md-type-label-md); padding: 5px 6px; }
 body.print-mode-grid .value-chip,
 body.print-mode-grid .ckt-input { padding: 1px 3px; font-size: var(--md-type-label-sm); }
-body.print-mode-grid .splay-value { width: 26px; height: 18px; font-size: var(--md-type-label-xxs); }
+body.print-mode-grid .field-angle .splay-value { width: 26px; height: 18px; font-size: var(--md-type-label-xxs); }
