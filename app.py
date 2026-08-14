@@ -994,12 +994,22 @@ def api_upload(show_slug, date_slug):
 
     try:
         if ext == '.pdf':
-            from pdf_parser import extract_sections_from_pdf
             with tempfile.NamedTemporaryFile(suffix='.pdf', delete=False) as tmp:
                 file.save(tmp.name)
                 tmp_path = tmp.name
             try:
-                sections = extract_sections_from_pdf(tmp_path)
+                # Manufacturer/format is auto-detected from the PDF's own
+                # content rather than asked of the SE -- each format has a
+                # reliable self-identifying signal to sniff for (MAPP 3D
+                # stamps its product name on every page), so a new format
+                # just needs a new sniff + parser pair added here, no UI
+                # for picking a source format.
+                from meyer_parser import extract_sections_from_meyer_pdf, is_meyer_mapp3d_pdf
+                if is_meyer_mapp3d_pdf(tmp_path):
+                    sections = extract_sections_from_meyer_pdf(tmp_path)
+                else:
+                    from pdf_parser import extract_sections_from_pdf
+                    sections = extract_sections_from_pdf(tmp_path)
             finally:
                 os.unlink(tmp_path)
         else:
