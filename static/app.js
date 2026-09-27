@@ -2326,10 +2326,30 @@ function renderCard(section, cfg, activePalette, cycleLen) {
           cell.appendChild(val);
         }
       } else if (f === 'nfc') {
-        // No chip at all when there's no value, rather than an empty pill
-        // with nothing in it -- most boxes don't carry an NFC tag, so an
-        // empty pill on every one of those rows read as visual noise.
-        if (cab.nfc) cell.appendChild(makeChip(cab.nfc));
+        // cab.nfc is what the pinning sheet designed and is never edited
+        // here; typing a different value records cab.nfc_run, the filter
+        // that actually ran that day (the Tour Report compares the two).
+        // Typing the sheet's value back clears the override. An empty
+        // input fades out entirely (see .nfc-input.is-empty) -- most boxes
+        // carry no NFC, and a blank pill on every one of those rows read
+        // as visual noise.
+        const sheetNfc = cab.nfc || '';
+        const changed = cab.nfc_run !== undefined && cab.nfc_run !== sheetNfc;
+        const effective = changed ? cab.nfc_run : sheetNfc;
+        const input = document.createElement('input');
+        input.type = 'text';
+        input.value = effective;
+        input.className = 'nfc-input' + (effective ? '' : ' is-empty') + (changed ? ' is-changed' : '');
+        input.setAttribute('aria-label', `NFC for box ${cab.position}`);
+        input.title = changed
+          ? `Changed on site -- pinning sheet said ${sheetNfc || 'none'}`
+          : 'NFC -- type a different value if the filter was changed on site';
+        input.addEventListener('change', e => {
+          const v = e.target.value.trim();
+          if (v === sheetNfc) delete cab.nfc_run; else cab.nfc_run = v;
+          render();
+        });
+        cell.appendChild(input);
       } else {
         cell.appendChild(makeChip(cab[f] !== undefined ? cab[f] : ''));
       }

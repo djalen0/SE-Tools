@@ -89,8 +89,11 @@ name, **Notes**, per-tag Data Tags override.
 
 ## Per-box / in-card controls
 
-CKT text input, trunk-stripe click menu (assign to cable / start new
-cable / undo split), inline Tape Burn editor. Pick-group controls (see
+CKT text input, Splay input, NFC input, trunk-stripe click menu (assign
+to cable / start new cable / undo split), inline Tape Burn editor. The
+NFC input never overwrites the pinning sheet's `cab.nfc`; a different
+value is stored as `cab.nfc_run` (the as-run filter, ringed on the card),
+and typing the sheet's value back clears it. Pick-group controls (see
 below) are the one exception to "per-box controls sit in the table" —
 they live entirely on the hang stripe instead, nothing under the Cab #
 column.
@@ -122,6 +125,7 @@ the same way it looks on screen.
 ## Export / Print
 
 - **Export PDF (grid)…** and **Export PDF (mobile)…** — browser print-to-PDF, no user-configurable options beyond the two buttons; layout is derived from Cards per row / hang content.
+- **Tour Report** (Show page → Tour Report, `/<show>/report`) — box number × angle post-mortem across every Date, per hang role (MAIN/SIDE/…), with NFC vs. splay as a secondary section. **Export CSV** (one row per box per date, box numbers both from top and bottom) and **Print / Save PDF** (every hang, one per page). Device-local view options: dates included (`localStorage['pa-pinner-report-excluded:<show>']`; dates whose "date" doesn't parse start excluded), and **Count boxes from** Top/Bottom, per-hang **Hang size** filter (All / one box count; only shown when a hang ran at more than one length), grid **Shade by** Angle change/NFC depth, and **Highlight a date** (Array shape + Angle by box charts) (`localStorage['pa-pinner-report-prefs:<show>']`). Data: `GET /api/shows/<show>/report`.
 
 ## Auth / sharing
 

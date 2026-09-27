@@ -588,6 +588,17 @@ def show_page(show_slug):
     return render_template('show.html', show=show)
 
 
+@app.route('/<show_slug>/report')
+def tour_report_page(show_slug):
+    # A literal segment outranks <date_slug> in Werkzeug's matching, so
+    # this always wins over date_page below -- which is why 'report' is
+    # also kept out of the pool of date slugs (see RESERVED_DATE_SLUGS).
+    show = get_show(show_slug)
+    if not show:
+        return render_template('not_found.html', kind='show'), 404
+    return render_template('report.html', show=show)
+
+
 @app.route('/<show_slug>/<date_slug>')
 def date_page(show_slug, date_slug):
     show = get_show(show_slug)
@@ -793,10 +804,100 @@ def api_create_date(show_slug):
     with STATE_LOCK:
         root = dates_dir(show_slug)
         existing = {d.name for d in root.iterdir() if d.is_dir()} if root.exists() else set()
-        slug = unique_slug(slugify(date_str), existing)
+        slug = unique_slug(slugify(date_str), existing | RESERVED_DATE_SLUGS)
         job = build_job([], None, page_header={'title': show['name'], 'venue': venue_str, 'address': address_str, 'date': date_str}, show=show)
         save_job(show_slug, slug, job)
     return jsonify({'slug': slug})
+
+
+# --- Tour report ------------------------------------------------------------
+# One flattened, analysis-ready view of every Date under a Show, feeding the
+# post-mortem page (templates/report.html + static/report.js). All the
+# string-to-number parsing lives here so the page only ever sees clean
+# numbers: splay "Frame"/"" -> None, NFC "" -> None (no filter), "-6" -> -6.
+#
+# NFC has two values per box: `nfc` is what the pinning sheet designed, and
+# `nfc_run` (set from the Date page's NFC input, only present once it's been
+# changed) is what actually ran that day -- the report analyzes the as-run
+# value and separately lists every box where the two differ.
+
+# Folder names that can't be a Date's slug because a page route owns them.
+RESERVED_DATE_SLUGS = {'report'}
+
+_LEADING_NUMBER_RE = re.compile(r'[-+]?\d+(?:\.\d+)?')
+
+
+def _parse_number(text):
+    if isinstance(text, (int, float)):
+        return float(text)
+    m = _LEADING_NUMBER_RE.search(str(text or '').replace('−', '-'))
+    return float(m.group(0)) if m else None
+
+
+def _hang_key(section):
+    """
+    Match the "same" hang across dates even as its title drifts between
+    sheets ("1. MAIN - CO12(Pair)" vs "MAIN - CO12(Pair)", or a sub model
+    revision): the role before the " - " model suffix, upper-cased, with
+    "(Pair)" and any leading "1. " numbering dropped.
+    """
+    name = section.get('section_name') or section.get('header') or ''
+    name = re.sub(r'\(pair\)', '', name, flags=re.IGNORECASE)
+    name = re.sub(r'^\s*\d+\.\s*', '', name)
+    role = name.split(' - ')[0].strip().upper()
+    return role or 'UNNAMED'
+
+
+def build_tour_report(show_slug):
+    dates = []
+    for entry in list_dates(show_slug):
+        job = load_job(show_slug, entry['slug']) or {}
+        ph = job.get('page_header') or {}
+        parsed = _parse_display_date(ph.get('date'))
+        hangs = []
+        for section in job.get('sections') or []:
+            boxes = []
+            for i, cab in enumerate(section.get('cabinets') or []):
+                sheet_raw = cab.get('nfc') or ''
+                changed = 'nfc_run' in cab and (cab.get('nfc_run') or '') != sheet_raw
+                run_raw = (cab.get('nfc_run') or '') if changed else sheet_raw
+                boxes.append({
+                    'position': cab.get('position', i + 1),
+                    'model': cab.get('model', ''),
+                    'dispersion': cab.get('dispersion', ''),
+                    # Box 1's "splay" is the frame, not a joint angle.
+                    'splay': None if i == 0 else _parse_number(cab.get('splay')),
+                    'nfc_sheet': _parse_number(sheet_raw),
+                    'nfc': _parse_number(run_raw),
+                    'nfc_changed': changed,
+                })
+            hangs.append({
+                'key': _hang_key(section),
+                'name': section.get('section_name') or section.get('header') or '',
+                'boxes': boxes,
+            })
+        dates.append({
+            'slug': entry['slug'],
+            'date': ph.get('date') or entry['slug'],
+            'iso': parsed.isoformat() if parsed else None,
+            'venue': ph.get('venue', ''),
+            'address': ph.get('address', ''),
+            'source_file': job.get('source_file') or '',
+            'hangs': hangs,
+        })
+    # Chronological (oldest first) for a tour timeline; unparseable dates last.
+    dates.sort(key=lambda d: (d['iso'] is None, d['iso'] or '', d['slug']))
+    return dates
+
+
+@app.route('/api/shows/<show_slug>/report', methods=['GET'])
+def api_tour_report(show_slug):
+    show = get_show(show_slug)
+    if not show:
+        return jsonify({'error': 'Show not found.'}), 404
+    with STATE_LOCK:
+        dates = build_tour_report(show_slug)
+    return jsonify({'show': show, 'dates': dates})
 
 
 # --- Platform profile APIs -------------------------------------------------
