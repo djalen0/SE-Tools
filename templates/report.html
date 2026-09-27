@@ -34,7 +34,7 @@
   <div class="report-head">
     <div>
       <h1>{{ show.name }} &mdash; Tour Report</h1>
-      <p class="page-sub" id="reportSub">Box-by-box angles across every date on the tour.</p>
+      <p class="page-sub" id="reportSub">Box-by-box angles across the tour.</p>
     </div>
     <div class="report-actions">
       <button id="exportCsvBtn" class="btn btn-ghost" type="button">Export CSV</button>
@@ -43,12 +43,18 @@
   </div>
 
   <div class="report-filters">
-    <div class="report-hang-tabs" id="hangTabs" role="tablist"></div>
-    <div id="alignToggle"></div>
-    <details class="report-date-picker" id="datePicker">
-      <summary id="datePickerSummary">Dates</summary>
-      <div class="report-date-list" id="dateCheckList"></div>
-    </details>
+    <div class="report-filters-row">
+      <div class="report-seg" id="hangTabs" role="tablist" aria-label="Hang"></div>
+      <details class="report-date-picker" id="datePicker">
+        <summary id="datePickerSummary">Dates</summary>
+        <div class="report-date-list" id="dateCheckList"></div>
+      </details>
+    </div>
+    <div class="report-filters-row report-filters-options">
+      <div id="sizeFilter" class="report-field"></div>
+      <div id="alignToggle" class="report-field"></div>
+    </div>
+    <p id="filterHint" class="report-filter-hint" hidden></p>
   </div>
 
   <div id="reportBody"></div>

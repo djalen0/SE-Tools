@@ -26,8 +26,11 @@ let EXCLUDED = null;        // Set of date slugs left out of the analysis
 let ACTIVE_HANG = null;
 // Per-device view prefs. align: 'top' | 'bottom'. shade: 'angle' | 'nfc'.
 // overlay: {hangKey: dateSlug} -- the one date drawn over the angle chart.
-// sizes: {hangKey: 'all' | '<box count>'} -- the Hang size filter.
-let PREFS = { align: 'top', shade: 'angle', overlay: {}, sizes: {} };
+// size: 'all' | '<box count>' -- the page-wide Hang size filter.
+// align can also be 'zones'; far/near are the zone sizes (boxes) it uses,
+// and labels picks Zones-mode row labels: 'function' (F#/M#/N#) or 'array'
+// (each box's absolute B#).
+let PREFS = { align: 'top', shade: 'angle', overlay: {}, size: 'all', far: 4, near: 5, labels: 'function' };
 
 // --- Small helpers ------------------------------------------------------
 
@@ -63,10 +66,111 @@ function shortDate(d) {
   return `${+m}/${+day}`;
 }
 
-// Box label for the current alignment: "12" from the top, "B3" = third
-// from the bottom.
-function slotLabel(slot) { return PREFS.align === 'bottom' ? 'B' + slot : String(slot); }
-function slotLabelLong(slot) { return PREFS.align === 'bottom' ? `Box ${slot} from bottom` : `Box ${slot}`; }
+// --- Zones ------------------------------------------------------------------
+// An array covers audience zones: the top boxes throw to the back of the
+// room (far), the bottom boxes cover the closest seats (near), and the
+// middle covers everything between. Hangs of different box counts line up
+// by what each box does, not its raw number: the far boxes match from the
+// top (B1-4 of a 16 ~ B1-4 of a 12), the near boxes match from the bottom
+// (B12-16 of a 16 ~ B8-12 of a 12), and the middle -- which stretches or
+// shrinks with box count (B5-11 of a 16 vs B5-7 of a 12) -- is matched by
+// relative position. Section sizes are adjustable (PREFS.far/near).
+//
+// Zone slots encode section + index as one sortable number so the rest of
+// the analysis can treat them like any other box number:
+// far box i -> i, mid bucket b -> 100 + b, near box j -> 200 + j (j = N is
+// the bottom box).
+const MID_BASE = 100, NEAR_BASE = 200;
+
+// Far/near box counts actually used on a `len`-box hang -- short hangs give
+// up near boxes first, then far, so there's always a top.
+function zoneSizes(len) {
+  const far = Math.min(PREFS.far, len);
+  return { far, near: Math.min(PREFS.near, len - far) };
+}
+function midCount(len) { const z = zoneSizes(len); return len - z.far - z.near; }
+
+// Which section box `top` (1-based from the top) of a `len`-box hang is in.
+function zoneOf(top, len) {
+  const { far, near } = zoneSizes(len);
+  const fromBottom = len - top + 1;
+  if (top <= far) return { section: 'far', index: top };
+  if (fromBottom <= near) return { section: 'near', index: PREFS.near - fromBottom + 1 };
+  return { section: 'mid', index: top - far, of: len - far - near };
+}
+
+// Set b.slot on every box for the current Line-up mode. In zones mode the
+// middle is bucketed into as many rows as the SHORTEST middle in play, each
+// box landing in a bucket by its relative position -- so a 7-box middle
+// and a 3-box middle both read as three rows (upper/centre/lower middle).
+function assignSlots(runs) {
+  const mids = runs.map(r => midCount(r.len)).filter(n => n > 0);
+  const buckets = mids.length ? Math.min(...mids) : 0;
+  runs.forEach(r => r.boxes.forEach(b => {
+    if (PREFS.align === 'bottom') b.slot = b.fromBottom;
+    else if (PREFS.align !== 'zones') b.slot = b.top;
+    else if (b.zone.section === 'far') b.slot = b.zone.index;
+    else if (b.zone.section === 'near') b.slot = NEAR_BASE + b.zone.index;
+    else b.slot = MID_BASE + Math.min(buckets, Math.floor(((b.zone.index - 0.5) / b.zone.of) * buckets) + 1);
+  }));
+}
+
+function slotSection(slot) { return slot >= NEAR_BASE ? 'near' : slot >= MID_BASE ? 'mid' : 'far'; }
+
+// Display names for the three zones, used everywhere they're shown.
+const ZONE_NAMES = { far: 'Far-Field', mid: 'Mid-Field', near: 'Near-Field' };
+
+// Box labels. "B#" is ALWAYS a box's absolute number in its hang (B1 = top
+// box), never a position counted some other way. A row (slot) can hold
+// different absolute boxes on hangs of different lengths -- near-field N5
+// is B16 on a 16 but B12 on a 12 -- so a row's B# label lists every box
+// number that lands in it: "B16", "B6–7", "B12/14/16". The functional
+// labels (F#/M#/N#) exist only in Zones mode, where PREFS.labels picks
+// between them and B#.
+function useFunctionLabels() { return PREFS.align === 'zones' && PREFS.labels === 'function'; }
+
+function absLabel(nums) {
+  const n = [...new Set(nums)].sort((p, q) => p - q);
+  if (!n.length) return '';
+  if (n.length === 1) return 'B' + n[0];
+  if (n[n.length - 1] - n[0] === n.length - 1) return `B${n[0]}–${n[n.length - 1]}`;
+  return 'B' + n.join('/');
+}
+
+function functionLabel(slot) {
+  if (slot >= NEAR_BASE) return 'N' + (slot - NEAR_BASE);
+  if (slot >= MID_BASE) return 'M' + (slot - MID_BASE);
+  return 'F' + slot;
+}
+
+// Short row label, e.g. for the grid's first column. `a` is the hang's
+// analysis (its slotBoxes say which absolute boxes each row holds).
+function slotLabel(slot, a) {
+  return useFunctionLabels() ? functionLabel(slot) : absLabel(a.slotBoxes.get(slot) || []);
+}
+
+// One specific box on one specific date -- its own B# when showing box
+// numbers, else its row's functional label.
+function boxLabel(box, a) { return useFunctionLabels() ? functionLabel(box.slot) : 'B' + box.top; }
+
+// Long description for tooltips: where the row sits, plus its box numbers.
+function slotLabelLong(slot, a) {
+  const abs = absLabel(a.slotBoxes.get(slot) || []);
+  if (PREFS.align === 'bottom') return `${ordinal(slot)} box from the bottom (${abs})`;
+  if (PREFS.align !== 'zones') return abs;
+  let where;
+  if (slot >= NEAR_BASE) {
+    const j = slot - NEAR_BASE;
+    where = `${ZONE_NAMES.near} ${j} of ${PREFS.near}${j === PREFS.near ? ', bottom box' : ''}`;
+  } else if (slot >= MID_BASE) where = `${ZONE_NAMES.mid}, part ${slot - MID_BASE}`;
+  else where = `${ZONE_NAMES.far} ${slot} of ${PREFS.far}`;
+  return useFunctionLabels() ? `${functionLabel(slot)} · ${where} (${abs})` : `${abs} · ${where}`;
+}
+
+function ordinal(n) {
+  const s = ['th', 'st', 'nd', 'rd'], v = n % 100;
+  return n + (s[(v - 20) % 10] || s[v] || s[0]);
+}
 
 function median(values) {
   if (!values.length) return null;
@@ -156,11 +260,12 @@ function analyzeHang(key, dates, sizeFilter) {
     const hang = d.hangs.find(h => h.key === key);
     if (!hang) return;
     const len = hang.boxes.length;
-    // slot = this box's number under the current alignment. Counted off
-    // the box's index in the hang (not its stored position) so top/bottom
-    // numbering always agree with each other.
+    // top/fromBottom are counted off the box's index in the hang (not its
+    // stored position) so every numbering scheme agrees with the others.
+    // slot (this box's row under the current Line-up mode) is assigned
+    // below, once the size filter has settled which runs are in play.
     const boxes = hang.boxes
-      .map((b, i) => ({ ...b, top: i + 1, slot: PREFS.align === 'bottom' ? len - i : i + 1 }))
+      .map((b, i) => ({ ...b, top: i + 1, fromBottom: len - i, zone: zoneOf(i + 1, len) }))
       .filter(b => b.splay !== null);
     if (!boxes.length) return;
     // A date whose hang has no NFC on any box is treated as "NFC not
@@ -175,11 +280,17 @@ function analyzeHang(key, dates, sizeFilter) {
   const sizes = [...sizeCounts.entries()].sort((p, q) => p[0] - q[0]);
   const size = sizeFilter && sizeFilter !== 'all' && sizeCounts.has(+sizeFilter) ? +sizeFilter : null;
   if (size !== null) runs = runs.filter(r => r.len === size);
+  assignSlots(runs);
 
   // --- Box x angle (the main analysis) ---
   const angleItems = [];
   runs.forEach(r => r.boxes.forEach(b => angleItems.push({ group: b.slot, value: b.splay, date: r.date.slug, run: r, box: b })));
   const typicalAngle = typicalBy(angleItems);
+  // Which absolute box numbers (B#) land in each row, for row labels.
+  const slotBoxes = new Map();
+  angleItems.forEach(it => { if (!slotBoxes.has(it.group)) slotBoxes.set(it.group, []); slotBoxes.get(it.group).push(it.box.top); });
+  // Always top-down reading order: descending box-from-bottom numbers, or
+  // ascending otherwise (zone slots are encoded far < mid < near).
   const slots = [...typicalAngle.keys()].sort((a, b) => (PREFS.align === 'bottom' ? b - a : a - b));
   const angleMatch = it => typicalAngle.get(it.group).value === it.value;
   const angleChanges = angleItems.filter(it => !angleMatch(it)).map(it => ({
@@ -207,6 +318,18 @@ function analyzeHang(key, dates, sizeFilter) {
   const changes = [];
   runs.forEach(r => r.boxes.forEach(b => { if (b.nfc_changed) changes.push({ run: r, box: b }); }));
 
+  // Curve (sum of joint angles) each zone got on each date, plus the
+  // tour's median per zone -- see renderZoneCurve.
+  const zoneCurve = runs.map(r => {
+    const sum = z => r.boxes.filter(b => b.zone.section === z).reduce((s, b) => s + b.splay, 0);
+    const count = z => r.hang.boxes.filter((b, i) => zoneOf(i + 1, r.len).section === z).length;
+    return { run: r, far: sum('far'), mid: sum('mid'), near: sum('near'), midBoxes: count('mid'), total: r.boxes.reduce((s, b) => s + b.splay, 0) };
+  });
+  const zoneMedian = {
+    far: median(zoneCurve.map(z => z.far)), mid: median(zoneCurve.map(z => z.mid)),
+    near: median(zoneCurve.map(z => z.near)), total: median(zoneCurve.map(z => z.total)),
+  };
+
   const perDate = runs.map(r => {
     const offs = angleChanges.filter(c => c.run === r);
     const biggest = offs.reduce((a, c) => (!a || Math.abs(c.delta) > Math.abs(a.delta) ? c : a), null);
@@ -224,10 +347,10 @@ function analyzeHang(key, dates, sizeFilter) {
 
   const onsets = perDate.filter(p => p.nfcOnset).map(p => p.nfcOnset.splay);
   return {
-    key, runs, slots, typicalAngle, angleItems, angleChanges, comparable, locked, mostVariable, perDate,
+    key, runs, slots, slotBoxes, typicalAngle, angleItems, angleChanges, comparable, locked, mostVariable, perDate,
     angleConsistency: angleItems.length ? angleItems.filter(angleMatch).length / angleItems.length : null,
     lengths: runs.length ? [Math.min(...runs.map(r => r.len)), Math.max(...runs.map(r => r.len))] : null,
-    sizes, size,
+    sizes, size, zoneCurve, zoneMedian,
     nfc: {
       withNfc, items: nfcItems, rule: nfcRule, ruleList: nfcRuleList, deviations: nfcDeviations, changes,
       consistency: nfcItems.length ? nfcItems.filter(nfcMatch).length / nfcItems.length : null,
@@ -283,11 +406,30 @@ function statTile(label, value, note) {
   return tile;
 }
 
-function card(title, sub) {
-  const c = el('section', 'report-card');
-  c.appendChild(el('h3', 'report-card-title', title));
-  if (sub) c.appendChild(el('p', 'report-card-sub', sub));
+// A report card: title + one-line subtitle on the left, `c.actions` (for
+// per-card controls) on the right. `collapsible` makes it a <details>
+// whose header is the toggle -- used for the long reference tables so the
+// page leads with the charts. Print opens every one (see beforeprint).
+function card(title, sub, { collapsible = false, open = false } = {}) {
+  const c = el(collapsible ? 'details' : 'section', 'report-card' + (collapsible ? ' report-collapsible' : ''));
+  if (collapsible) c.open = open;
+  const head = el(collapsible ? 'summary' : 'div', 'report-card-head');
+  const text = el('div', 'report-card-text');
+  text.appendChild(el('h3', 'report-card-title', title));
+  if (sub) text.appendChild(el('p', 'report-card-sub', sub));
+  head.appendChild(text);
+  c.actions = el('div', 'report-card-actions');
+  if (!collapsible) head.appendChild(c.actions);
+  c.appendChild(head);
   return c;
+}
+
+// Collapsible sub-section inside a card (e.g. a chart's reference table).
+function disclosure(label, content) {
+  const d = el('details', 'report-disclosure');
+  d.appendChild(el('summary', null, label));
+  d.appendChild(content);
+  return d;
 }
 
 function meter(fraction) {
@@ -394,7 +536,7 @@ function renderStats(a) {
   wrap.appendChild(statTile('Angle consistency', fmtPct(a.angleConsistency),
     'Box-dates that ran their box’s typical angle'));
   const mv = a.mostVariable !== null ? a.typicalAngle.get(a.mostVariable) : null;
-  wrap.appendChild(statTile('Most variable box', mv && mv.agree < 1 ? slotLabel(a.mostVariable) : '—',
+  wrap.appendChild(statTile('Most variable box', mv && mv.agree < 1 ? slotLabel(a.mostVariable, a) : '—',
     mv && mv.agree < 1 ? `Ran ${fmtDeg(mv.min)}–${fmtDeg(mv.max)}; typical ${fmtDeg(mv.value)} on ${fmtPct(mv.agree)} of dates` : 'Every box held its angle'));
   return wrap;
 }
@@ -469,22 +611,21 @@ function arrayProfile(splays) {
 }
 
 function renderShape(a) {
-  const c = card('Array shape',
-    'Side view built from the joint angles alone. Small angles stack into a flat section, and big angles make the curl. The CO12 is taller at the front than the rear, so a 10° joint closes flush at the back and smaller angles leave a wedge gap. The filled hang is the typical angle at every box. Thin lines are every other date, drawn along the box fronts.');
+  // (The CO12 is taller at the front than the rear, so a 10° joint closes
+  // flush at the back and smaller angles leave a wedge gap -- see
+  // co12Outline.)
+  const c = card('Array shape', 'Side view from the joint angles: the typical hang, with every other date traced behind it.');
+  c.classList.add('report-card-shape');
   if (!a.runs.length) return c;
 
-  const controls = el('div', 'report-card-controls');
-  const pickLabel = el('label', 'report-inline-control');
-  pickLabel.appendChild(document.createTextNode('Highlight a date '));
-  const select = el('select');
-  select.appendChild(new Option('None', ''));
+  const select = el('select', 'report-select');
+  select.setAttribute('aria-label', 'Highlight a date');
+  select.appendChild(new Option('Highlight a date', ''));
   a.runs.forEach(r => select.appendChild(new Option(`${shortDate(r.date)}${r.date.venue ? ' · ' + r.date.venue : ''}`, r.date.slug)));
   const chosen = PREFS.overlay[a.key] || '';
   select.value = a.runs.some(r => r.date.slug === chosen) ? chosen : '';
   select.addEventListener('change', () => { PREFS.overlay[a.key] = select.value; savePrefs(); render(); });
-  pickLabel.appendChild(select);
-  controls.appendChild(pickLabel);
-  c.appendChild(controls);
+  c.actions.appendChild(select);
 
   // a.slots is already top-down in either numbering mode.
   const typical = arrayProfile(a.slots.map(s => a.typicalAngle.get(s).value));
@@ -525,7 +666,7 @@ function renderShape(a) {
     const slot = slotOrder[i];
     if (slot !== null) {
       const t = a.typicalAngle.get(slot);
-      attachTip(g, slotLabelLong(slot), () => [
+      attachTip(g, slotLabelLong(slot, a), () => [
         { value: fmtDeg(t.value), label: 'typical joint angle' },
         { value: fmtPct(t.agree), label: 'of dates ran it' },
         { value: fmtDeg(b.theta), label: 'curve from the top box' },
@@ -550,8 +691,7 @@ function renderShape(a) {
 }
 
 function renderAngleChart(a) {
-  const c = card('Angle by box',
-    'Every date’s splay at each box. Bigger bubbles mean more dates ran that angle there. The line is each box’s typical angle, the one used most often.');
+  const c = card('Angle by box', 'Each date’s joint angle at every box. Bigger bubbles mean more dates; the line is the typical angle.');
   if (!a.angleItems.length) return c;
 
   const bubbles = [];
@@ -559,7 +699,7 @@ function renderAngleChart(a) {
     const t = a.typicalAngle.get(slot);
     t.counts.forEach((cnt, splay) => bubbles.push({
       x: slot, y: splay, count: cnt.count,
-      title: `${slotLabelLong(slot)} · ${fmtDeg(splay)}`,
+      title: `${slotLabelLong(slot, a)} · ${fmtDeg(splay)}`,
       lines: () => [
         { value: String(cnt.dates.size), label: cnt.dates.size === 1 ? 'date' : 'dates' },
         { value: fmtPct(cnt.count / t.n), label: `of dates at this box` },
@@ -572,11 +712,16 @@ function renderAngleChart(a) {
   // Same highlighted date as the Array shape chart's picker above.
   const overlayRun = a.runs.find(r => r.date.slug === PREFS.overlay[a.key]);
   const overlay = overlayRun
-    ? a.slots.map(s => overlayRun.boxes.find(b => b.slot === s)).filter(Boolean).map(b => ({ x: b.slot, y: b.splay }))
+    ? a.slots.map(s => {
+      // Mean if a zones-mode middle row holds several of this hang's boxes.
+      const bs = overlayRun.boxes.filter(b => b.slot === s);
+      return bs.length ? { x: s, y: bs.reduce((t, b) => t + b.splay, 0) / bs.length } : null;
+    }).filter(Boolean)
     : null;
   c.appendChild(bubbleChart({
-    xs: a.slots, xLabel: slotLabel, yMin: 0, yMax, yStep: 2, yLabel: v => v + '°',
-    xTitle: PREFS.align === 'bottom' ? 'Box, counted from the bottom (top of hang on the left)' : 'Box, counted from the top',
+    xs: a.slots, xLabel: s => slotLabel(s, a), yMin: 0, yMax, yStep: 2, yLabel: v => v + '°',
+    xTitle: PREFS.align === 'zones' ? 'Box by zone: Far-Field (from the top) · Mid-Field (by position) · Near-Field (from the bottom)'
+      : PREFS.align === 'bottom' ? 'Box, counted from the bottom (top of hang on the left)' : 'Box, counted from the top',
     yTitle: 'Splay (bigger = more curve)', bubbles,
     line: a.slots.map(s => ({ x: s, y: a.typicalAngle.get(s).value })),
     overlay, ariaLabel: `Splay by box for ${a.key}`,
@@ -593,7 +738,7 @@ function renderAngleChart(a) {
     const t = a.typicalAngle.get(slot);
     curveSoFar += t.value;
     const tr = el('tr');
-    tr.appendChild(td('num strong', slotLabel(slot)));
+    tr.appendChild(td('num strong', slotLabel(slot, a)));
     tr.appendChild(td('num strong', fmtDeg(t.value)));
     tr.appendChild(td('num muted', fmtDeg(curveSoFar)));
     tr.appendChild(meterCell(t.agree));
@@ -605,7 +750,7 @@ function renderAngleChart(a) {
     tr.appendChild(td('muted', others || '—'));
     return tr;
   });
-  c.appendChild(tableWrap(['Box', 'Typical angle', 'Curve to here', 'Held', 'Range', 'Dates', 'Also ran'], rows));
+  c.appendChild(disclosure('Per-box table', tableWrap(['Box', 'Typical angle', 'Curve to here', 'Held', 'Range', 'Dates', 'Also ran'], rows)));
   return c;
 }
 
@@ -637,13 +782,10 @@ function renderGrid(a) {
   const byAngle = PREFS.shade !== 'nfc';
   const c = card('Box × date',
     byAngle
-      ? 'Each column is a date, each row a box. Numbers are splay. Shading shows how that box compared to its typical angle: blue is a smaller angle (flatter), red is a larger one (more curve), plain means it ran its typical angle.'
-      : 'Each column is a date, each row a box. Numbers are splay; shading is NFC depth. A corner mark means the NFC was changed on site from what the sheet said.');
+      ? 'Joint angle per box per date, shaded against that box’s typical angle.'
+      : 'Joint angle per box per date, shaded by NFC depth. A corner mark means the NFC was changed on site.');
   if (!a.runs.length) return c;
-
-  const controls = el('div', 'report-card-controls');
-  controls.appendChild(segmented('Shade by', [['angle', 'Angle change'], ['nfc', 'NFC depth']], PREFS.shade, v => { PREFS.shade = v; savePrefs(); render(); }));
-  c.appendChild(controls);
+  c.actions.appendChild(segmented('Shade by', [['angle', 'Angle'], ['nfc', 'NFC']], PREFS.shade, v => { PREFS.shade = v; savePrefs(); render(); }));
 
   const maxDepth = Math.max(1, ...a.nfc.items.map(p => Math.abs(p.value)));
   const maxDelta = Math.max(1, ...a.angleChanges.map(ch => Math.abs(ch.delta)));
@@ -661,32 +803,37 @@ function renderGrid(a) {
   });
   table.appendChild(el('thead')).appendChild(head);
   const body = el('tbody');
-  a.slots.forEach(slot => {
+  a.slots.forEach((slot, si) => {
     const tr = el('tr');
-    tr.appendChild(el('th', 'report-grid-pos', slotLabel(slot)));
+    // Zones mode: a heavier rule where far -> mid -> near changes.
+    if (PREFS.align === 'zones' && si > 0 && slotSection(a.slots[si - 1]) !== slotSection(slot)) tr.className = 'zone-start';
+    tr.appendChild(el('th', 'report-grid-pos', slotLabel(slot, a)));
     const typical = a.typicalAngle.get(slot).value;
     a.runs.forEach(r => {
-      const box = r.boxes.find(b => b.slot === slot);
+      // Usually one box; a zones-mode middle row can hold several boxes
+      // of a longer hang (its middle squeezed into fewer rows).
+      const boxes = r.boxes.filter(b => b.slot === slot);
       const cell = el('td');
-      if (!box) { cell.className = 'empty'; tr.appendChild(cell); return; }
-      cell.textContent = fmtNum(box.splay);
+      if (!boxes.length) { cell.className = 'empty'; tr.appendChild(cell); return; }
+      cell.textContent = boxes.map(b => fmtNum(b.splay)).join('·');
       cell.tabIndex = 0;
-      const delta = box.splay - typical;
+      const mean = boxes.reduce((s, b) => s + b.splay, 0) / boxes.length;
+      const delta = mean - typical;
       let color = null;
       if (byAngle) color = deltaColor(delta, maxDelta);
-      else if (r.hasNfc) color = nfcColor(Math.abs(nfcVal(box)), maxDepth);
+      else if (r.hasNfc) color = nfcColor(Math.max(...boxes.map(b => Math.abs(nfcVal(b)))), maxDepth);
       else cell.classList.add('no-nfc');
       if (color) { cell.style.background = color.fill; cell.style.color = color.ink; }
-      if (!byAngle && box.nfc_changed) cell.classList.add('changed');
-      attachTip(cell, `${shortDate(r.date)}${r.date.venue ? ' · ' + r.date.venue : ''} · ${slotLabelLong(slot)}`, () => {
+      if (!byAngle && boxes.some(b => b.nfc_changed)) cell.classList.add('changed');
+      attachTip(cell, `${shortDate(r.date)}${r.date.venue ? ' · ' + r.date.venue : ''} · ${slotLabelLong(slot, a)}`, () => {
         const lines = [
-          { value: fmtDeg(box.splay), label: 'splay' },
-          { value: fmtDeg(typical), label: 'typical at this box' },
+          { value: boxes.map(b => fmtDeg(b.splay)).join(', '), label: boxes.length > 1 ? `splay (${boxes.length} boxes)` : 'splay' },
+          { value: fmtDeg(typical), label: 'typical here' },
         ];
-        if (delta) lines.push({ value: fmtDelta(delta), label: delta < 0 ? 'flatter' : 'more curve' });
-        if (PREFS.align === 'bottom') lines.push({ value: String(box.top), label: 'from the top' });
-        lines.push({ value: r.hasNfc ? fmtNfc(nfcVal(box)) : 'not recorded', label: 'NFC' });
-        if (box.nfc_changed) lines.push({ value: fmtNfc(box.nfc_sheet === null ? 0 : box.nfc_sheet), label: 'NFC on the sheet' });
+        if (delta) lines.push({ value: fmtDelta(delta), label: (delta < 0 ? 'flatter' : 'more curve') + (boxes.length > 1 ? ' on average' : '') });
+        if (PREFS.align !== 'top') lines.push({ value: boxes.map(b => 'B' + b.top).join(', '), label: 'on this hang' });
+        lines.push({ value: r.hasNfc ? boxes.map(b => fmtNfc(nfcVal(b))).join(', ') : 'not recorded', label: 'NFC' });
+        boxes.filter(b => b.nfc_changed).forEach(b => lines.push({ value: fmtNfc(b.nfc_sheet === null ? 0 : b.nfc_sheet), label: `NFC on the sheet (B${b.top})` }));
         return lines;
       });
       tr.appendChild(cell);
@@ -723,7 +870,7 @@ function renderGrid(a) {
 }
 
 function renderPerDate(a) {
-  const c = card('Date by date', 'How each date’s angles compared to the typical angle at each box.');
+  const c = card('Date by date', 'How closely each date ran the typical angle at every box.');
   const rows = a.perDate.map(p => {
     const d = p.run.date;
     const tr = el('tr');
@@ -735,8 +882,8 @@ function renderPerDate(a) {
     tr.appendChild(td('num', fmtDeg(p.totalSplay)));
     tr.appendChild(meterCell(p.match));
     tr.appendChild(td('num', p.offCount ? String(p.offCount) : '—'));
-    tr.appendChild(td('num', p.biggest ? `${slotLabel(p.biggest.slot)} · ${fmtDeg(p.biggest.typical)} → ${fmtDeg(p.biggest.splay)}` : '—'));
-    tr.appendChild(td('num muted', p.nfcOnset ? `${slotLabel(p.nfcOnset.slot)} · ${fmtDeg(p.nfcOnset.splay)}` : '—'));
+    tr.appendChild(td('num', p.biggest ? `${boxLabel(p.biggest.box, a)} · ${fmtDeg(p.biggest.typical)} → ${fmtDeg(p.biggest.splay)}` : '—'));
+    tr.appendChild(td('num muted', p.nfcOnset ? `${boxLabel(p.nfcOnset, a)} · ${fmtDeg(p.nfcOnset.splay)}` : '—'));
     return tr;
   });
   c.appendChild(tableWrap(['Date', 'Venue', 'Boxes', 'Total splay', 'On typical', 'Boxes changed', 'Biggest change', 'NFC starts'], rows));
@@ -745,7 +892,7 @@ function renderPerDate(a) {
 
 function renderAngleChanges(a) {
   const c = card(`Angle changes (${a.angleChanges.length})`,
-    'Every box that ran something other than its typical angle, sorted by box.');
+    'Every box that ran something other than its typical angle, by box.', { collapsible: true });
   if (!a.angleChanges.length) {
     c.appendChild(el('p', 'report-empty', 'Every box ran its typical angle on every date.'));
     return c;
@@ -753,7 +900,7 @@ function renderAngleChanges(a) {
   const sorted = [...a.angleChanges].sort((p, q) => a.slots.indexOf(p.slot) - a.slots.indexOf(q.slot));
   const rows = sorted.map(ch => {
     const tr = el('tr');
-    tr.appendChild(td('num strong', slotLabel(ch.slot)));
+    tr.appendChild(td('num strong', boxLabel(ch.box, a)));
     tr.appendChild(td(null, `${shortDate(ch.run.date)}${ch.run.date.venue ? ' · ' + ch.run.date.venue : ''}`));
     tr.appendChild(td('num muted', fmtDeg(ch.typical)));
     tr.appendChild(td('num strong', fmtDeg(ch.splay)));
@@ -770,7 +917,7 @@ function renderAngleChanges(a) {
 function renderNfc(a) {
   const n = a.nfc;
   const c = card('NFC vs. splay',
-    'Secondary view: how the NFC filter tracked each box’s splay. Only dates that have NFC recorded on this hang are counted.');
+    'How the NFC filter tracked each box’s joint angle, on dates with NFC recorded.', { collapsible: true });
   if (!n.items.length) {
     c.appendChild(el('p', 'report-empty', 'No NFC recorded on this hang for the selected dates.'));
     return c;
@@ -832,7 +979,7 @@ function renderNfc(a) {
     dev.appendChild(tableWrap(['Date', 'Box', 'Splay', 'NFC', 'Typical'], n.deviations.map(it => {
       const tr = el('tr');
       tr.appendChild(td(null, shortDate(it.run.date)));
-      tr.appendChild(td('num', slotLabel(it.box.slot)));
+      tr.appendChild(td('num', boxLabel(it.box, a)));
       tr.appendChild(td('num', fmtDeg(it.group)));
       tr.appendChild(td('num strong', fmtNfc(it.value)));
       tr.appendChild(td('num muted', fmtNfc(n.rule.get(it.group).value)));
@@ -849,7 +996,7 @@ function renderNfc(a) {
     chg.appendChild(tableWrap(['Date', 'Box', 'Splay', 'Sheet', 'Ran'], n.changes.map(({ run, box }) => {
       const tr = el('tr');
       tr.appendChild(td(null, shortDate(run.date)));
-      tr.appendChild(td('num', slotLabel(box.slot)));
+      tr.appendChild(td('num', boxLabel(box, a)));
       tr.appendChild(td('num', fmtDeg(box.splay)));
       tr.appendChild(td('num muted', fmtNfc(box.nfc_sheet === null ? 0 : box.nfc_sheet)));
       tr.appendChild(td('num strong', fmtNfc(nfcVal(box))));
@@ -863,51 +1010,87 @@ function renderNfc(a) {
 
 // --- Page -------------------------------------------------------------------
 
-function segmented(label, options, current, onChange) {
-  const wrap = el('div', 'report-segmented');
-  wrap.setAttribute('role', 'group');
-  wrap.setAttribute('aria-label', label);
-  wrap.appendChild(el('span', 'report-segmented-label', label));
+// One segmented control style for every choice on the page: a pill track
+// with the active option filled. `label` names the group (shown as a small
+// caption unless `hideLabel`).
+function segmented(label, options, current, onChange, { hideLabel = false } = {}) {
+  const seg = el('div', 'report-seg');
+  seg.setAttribute('role', 'group');
+  seg.setAttribute('aria-label', label);
   options.forEach(([value, text]) => {
-    const b = el('button', 'report-segment' + (value === current ? ' is-active' : ''), text);
+    const b = el('button', 'report-seg-btn' + (value === current ? ' is-active' : ''), text);
     b.type = 'button';
     b.setAttribute('aria-pressed', value === current ? 'true' : 'false');
     b.addEventListener('click', () => onChange(value));
-    wrap.appendChild(b);
+    seg.appendChild(b);
   });
-  return wrap;
+  return hideLabel ? seg : field(label, seg);
 }
 
-// Hang size filter -- compare only hangs of one box count (a 12-box hang's
-// angles against other 12-box hangs), or all of them. Only shown when the
-// hang actually ran at more than one size. Scopes everything in the
-// hang's section below it.
-function renderSizeFilter(a) {
-  const row = el('div', 'report-size-filter');
-  if (a.sizes.length < 2) return row;
-  const options = [['all', `All (${a.sizes.reduce((s, [, n]) => s + n, 0)})`],
-    ...a.sizes.map(([len, n]) => [String(len), `${len} boxes (${n})`])];
-  row.appendChild(segmented('Hang size', options, a.size ? String(a.size) : 'all', v => {
-    PREFS.sizes[a.key] = v;
-    savePrefs();
-    render();
+// A captioned control: small label, then the control.
+function field(label, control) {
+  const f = el('div', 'report-field');
+  f.appendChild(el('span', 'report-field-label', label));
+  f.appendChild(control);
+  return f;
+}
+
+// Every hang length (box count) in the selected dates, across all hangs
+// that have joint angles: Map len -> {hangs: count of hang-dates, keys}.
+function hangSizes(dates) {
+  const sizes = new Map();
+  dates.forEach(d => d.hangs.forEach(h => {
+    if (!h.boxes.some(b => b.splay !== null)) return;
+    const s = sizes.get(h.boxes.length) || { hangs: 0, keys: new Set() };
+    s.hangs++; s.keys.add(h.key);
+    sizes.set(h.boxes.length, s);
   }));
-  if (!a.size && PREFS.align === 'top') {
-    const hint = el('span', 'report-size-hint', 'Mixed sizes: counting boxes from the bottom lines up the bottom boxes (a 12-box hang’s 9–12 against a 16-box hang’s 13–16). ');
-    const btn = el('button', 'report-link-btn', 'Count from the bottom');
+  return new Map([...sizes.entries()].sort((p, q) => p[0] - q[0]));
+}
+
+// The page-wide box-count filter currently in effect, or null for all --
+// falls back to all if the saved size isn't in the selected dates.
+function activeSize(sizes) {
+  const s = PREFS.size && PREFS.size !== 'all' ? +PREFS.size : null;
+  return s !== null && sizes.has(s) ? s : null;
+}
+
+// Hang size filter -- the whole page (every hang, chart, table, the CSV
+// and print) limited to hangs of one box count, so a 12-box hang is only
+// compared with other 12-box hangs. A dropdown: real tours run many sizes.
+function renderSizeFilterBar(sizes, size, mixed) {
+  const host = document.getElementById('sizeFilter');
+  host.innerHTML = '';
+  host.hidden = sizes.size < 2;
+  const hintEl = document.getElementById('filterHint');
+  hintEl.innerHTML = '';
+  hintEl.hidden = true;
+  if (sizes.size < 2) return;
+  const total = [...sizes.values()].reduce((n, s) => n + s.hangs, 0);
+  const select = el('select', 'report-select');
+  select.setAttribute('aria-label', 'Hang size');
+  select.appendChild(new Option(`All sizes (${total})`, 'all'));
+  sizes.forEach((s, len) => select.appendChild(new Option(`${len} boxes (${s.hangs})`, String(len))));
+  select.value = size ? String(size) : 'all';
+  select.addEventListener('change', () => { PREFS.size = select.value; savePrefs(); render(); });
+  host.appendChild(field('Hang size', select));
+  // Mixed lengths on one hang and not lined up by zone yet: offer it --
+  // it's the mode that compares different box counts fairly.
+  if (!size && mixed && PREFS.align !== 'zones') {
+    hintEl.appendChild(document.createTextNode('Mixed hang sizes: zones line boxes up by the job they do (Far-Field, Mid-Field, Near-Field), not their number. '));
+    const btn = el('button', 'report-link-btn', 'Line up by zone');
     btn.type = 'button';
-    btn.addEventListener('click', () => { PREFS.align = 'bottom'; savePrefs(); render(); });
-    hint.appendChild(btn);
-    row.appendChild(hint);
+    btn.addEventListener('click', () => { PREFS.align = 'zones'; savePrefs(); render(); });
+    hintEl.appendChild(btn);
+    hintEl.hidden = false;
   }
-  return row;
 }
 
 function renderHangTabs(keys) {
   const tabs = document.getElementById('hangTabs');
   tabs.innerHTML = '';
   keys.forEach(k => {
-    const b = el('button', 'report-hang-tab' + (k === ACTIVE_HANG ? ' is-active' : ''), k);
+    const b = el('button', 'report-seg-btn' + (k === ACTIVE_HANG ? ' is-active' : ''), k);
     b.type = 'button';
     b.setAttribute('role', 'tab');
     b.setAttribute('aria-selected', k === ACTIVE_HANG ? 'true' : 'false');
@@ -919,8 +1102,84 @@ function renderHangTabs(keys) {
 function renderAlignToggle() {
   const host = document.getElementById('alignToggle');
   host.innerHTML = '';
-  host.appendChild(segmented('Count boxes from', [['top', 'Top'], ['bottom', 'Bottom']], PREFS.align,
+  host.appendChild(segmented('Line up boxes by', [['top', 'Top'], ['bottom', 'Bottom'], ['zones', 'Zones']], PREFS.align,
     v => { PREFS.align = v; savePrefs(); render(); }));
+  if (PREFS.align !== 'zones') return;
+  host.appendChild(stepper(ZONE_NAMES.far, 'top boxes', 'far'));
+  host.appendChild(stepper(ZONE_NAMES.near, 'bottom boxes', 'near'));
+  host.appendChild(segmented('Label boxes', [['array', 'Absolute'], ['function', 'Zone']], PREFS.labels,
+    v => { PREFS.labels = v; savePrefs(); render(); }));
+}
+
+// Compact −/+ control for a zone size (PREFS[key], 1-8 boxes).
+function stepper(label, unit, key) {
+  const wrap = el('div', 'report-stepper');
+  const make = (text, delta, aria) => {
+    const b = el('button', 'report-stepper-btn', text);
+    b.type = 'button';
+    b.setAttribute('aria-label', aria);
+    b.disabled = PREFS[key] + delta < 1 || PREFS[key] + delta > 8;
+    b.addEventListener('click', () => { PREFS[key] += delta; savePrefs(); render(); });
+    return b;
+  };
+  wrap.appendChild(make('−', -1, `Fewer ${unit}`));
+  wrap.appendChild(el('span', 'report-stepper-value', String(PREFS[key])));
+  wrap.appendChild(make('+', 1, `More ${unit}`));
+  return field(`${label} (${unit})`, wrap);
+}
+
+// How much curve (sum of joint angles) each zone got on each date. This is
+// the zone-level answer to "was the array doing the same job every night",
+// independent of box count: the far zone's curve on a 12 is directly
+// comparable to a 16's, even though the middle has a different box count.
+function renderZoneCurve(a) {
+  // Far = the top PREFS.far boxes (back of the room), near = the bottom
+  // PREFS.near (closest seats), middle = everything between.
+  const c = card('Curve by zone', `Sum of joint angles per zone, shaded against the tour median. ${ZONE_NAMES.far} = top ${PREFS.far}, ${ZONE_NAMES.near} = bottom ${PREFS.near}.`);
+  c.classList.add('report-card-zones');
+  if (!a.zoneCurve.length) return c;
+  const med = a.zoneMedian;
+  const zones = [['far', ZONE_NAMES.far], ['mid', ZONE_NAMES.mid], ['near', ZONE_NAMES.near], ['total', 'Total']];
+  const maxDelta = Math.max(1, ...a.zoneCurve.flatMap(z => zones.map(([k]) => Math.abs(z[k] - med[k]))));
+
+  const table = el('table', 'report-heat');
+  const head = el('tr');
+  head.appendChild(el('th', 'report-heat-date', 'Date'));
+  zones.forEach(([, label]) => head.appendChild(el('th', null, label)));
+  table.appendChild(el('thead')).appendChild(head);
+  const body = el('tbody');
+  const medRow = el('tr', 'report-heat-median');
+  medRow.appendChild(el('th', 'report-heat-date', 'Median'));
+  zones.forEach(([k]) => medRow.appendChild(el('td', null, fmtDeg(med[k]))));
+  body.appendChild(medRow);
+  a.zoneCurve.forEach(z => {
+    const tr = el('tr');
+    const dateCell = el('th', 'report-heat-date');
+    dateCell.appendChild(el('span', null, shortDate(z.run.date)));
+    if (z.run.date.venue) dateCell.appendChild(el('span', 'report-heat-venue', z.run.date.venue));
+    tr.appendChild(dateCell);
+    zones.forEach(([k, label]) => {
+      const cell = el('td', null, fmtDeg(z[k]));
+      cell.tabIndex = 0;
+      const d = z[k] - med[k];
+      const color = deltaColor(d, maxDelta);
+      if (color) { cell.style.background = color.fill; cell.style.color = color.ink; }
+      attachTip(cell, `${shortDate(z.run.date)}${z.run.date.venue ? ' · ' + z.run.date.venue : ''} · ${label}`, () => {
+        const lines = [{ value: fmtDeg(z[k]), label: 'curve' }, { value: fmtDeg(med[k]), label: 'tour median' }];
+        if (d) lines.push({ value: fmtDelta(d), label: d < 0 ? 'flatter' : 'more curve' });
+        if (k === 'mid') lines.push({ value: String(z.midBoxes), label: 'mid-field boxes' });
+        lines.push({ value: String(z.run.len), label: 'boxes in the hang' });
+        return lines;
+      });
+      tr.appendChild(cell);
+    });
+    body.appendChild(tr);
+  });
+  table.appendChild(body);
+  const wrap = el('div', 'report-table-wrap');
+  wrap.appendChild(table);
+  c.appendChild(wrap);
+  return c;
 }
 
 function renderDatePicker() {
@@ -948,15 +1207,20 @@ function renderDatePicker() {
 function render() {
   hideTooltip();
   const dates = includedDates();
-  const keys = hangKeys(dates);
+  const sizes = hangSizes(dates);
+  const size = activeSize(sizes);
+  // With a size picked, only hangs that ran at that size get a tab.
+  const keys = hangKeys(dates).filter(k => size === null || sizes.get(size).keys.has(k));
   if (!keys.includes(ACTIVE_HANG)) ACTIVE_HANG = keys[0] || null;
+  const mixed = keys.some(k => [...sizes.values()].filter(s => s.keys.has(k)).length > 1);
   renderHangTabs(keys);
   renderAlignToggle();
+  renderSizeFilterBar(sizes, size, mixed);
   renderDatePicker();
 
   const first = dates.find(d => d.iso), last = [...dates].reverse().find(d => d.iso);
   document.getElementById('reportSub').textContent = dates.length
-    ? `${dates.length} date${dates.length === 1 ? '' : 's'}${first && last ? `, ${first.date} – ${last.date}` : ''}. Box-by-box angles across the tour.`
+    ? `${dates.length} date${dates.length === 1 ? '' : 's'}${first && last ? `, ${first.date} – ${last.date}` : ''}${size ? `, ${size}-box hangs only` : ''}. Box-by-box angles across the tour.`
     : 'No dates selected.';
 
   const body = document.getElementById('reportBody');
@@ -968,12 +1232,16 @@ function render() {
   // Every hang is rendered; only the active one shows on screen, and print
   // shows them all (see .report-hang in style.css).
   keys.forEach(k => {
-    const a = analyzeHang(k, dates, PREFS.sizes[k]);
+    const a = analyzeHang(k, dates, size);
     const section = el('div', 'report-hang' + (k === ACTIVE_HANG ? ' is-active' : ''));
     section.appendChild(el('h2', 'report-hang-title', a.size ? `${k} · ${a.size}-box hangs` : k));
-    section.appendChild(renderSizeFilter(a));
     section.appendChild(renderStats(a));
-    section.appendChild(renderShape(a));
+    // Shape and zone curve side by side: the drawing is tall and narrow,
+    // and the two answer the same question (how the hang was shaped).
+    const pair = el('div', 'report-pair');
+    pair.appendChild(renderShape(a));
+    pair.appendChild(renderZoneCurve(a));
+    section.appendChild(pair);
     section.appendChild(renderAngleChart(a));
     section.appendChild(renderGrid(a));
     section.appendChild(renderPerDate(a));
@@ -988,20 +1256,22 @@ function csvCell(v) {
   return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
 }
 
-// Always one row per box per date, with both top- and bottom-counted box
-// numbers regardless of the on-screen toggle, so the file works for either
-// analysis in a spreadsheet.
+// One row per box per date, with both top- and bottom-counted box numbers
+// regardless of the on-screen toggle, so the file works for either
+// analysis in a spreadsheet. Follows the page's Dates and Hang size
+// filters -- the CSV is the page's export.
 function exportCsv() {
   const dates = includedDates();
+  const size = activeSize(hangSizes(dates));
   const savedAlign = PREFS.align;
   const rows = [['show', 'date', 'iso_date', 'venue', 'address', 'hang', 'hang_title', 'hang_length',
-    'box_from_top', 'box_from_bottom', 'model', 'dispersion', 'splay_deg',
+    'box_from_top', 'box_from_bottom', 'zone', 'zone_box', 'model', 'dispersion', 'splay_deg',
     'typical_splay_from_top', 'splay_change_from_top', 'typical_splay_from_bottom', 'splay_change_from_bottom',
     'nfc_sheet', 'nfc_run', 'nfc_changed_on_site', 'typical_nfc_for_splay']];
   const byAlign = {};
   ['top', 'bottom'].forEach(al => {
     PREFS.align = al;
-    byAlign[al] = new Map(hangKeys(dates).map(k => [k, analyzeHang(k, dates)]));
+    byAlign[al] = new Map(hangKeys(dates).map(k => [k, analyzeHang(k, dates, size)]));
   });
   PREFS.align = savedAlign;
   byAlign.top.forEach((a, k) => {
@@ -1013,7 +1283,9 @@ function exportCsv() {
       const nfcRule = a.nfc.rule.get(b.splay);
       rows.push([
         REPORT.show.name, r.date.date, r.date.iso || '', r.date.venue, r.date.address, k, r.hang.name, r.len,
-        b.top, fromBottom, b.model, b.dispersion, b.splay,
+        b.top, fromBottom, ZONE_NAMES[b.zone.section],
+        ({ far: 'F', mid: 'M', near: 'N' })[b.zone.section] + (b.zone.section === 'mid' ? `${b.zone.index} of ${b.zone.of}` : b.zone.index),
+        b.model, b.dispersion, b.splay,
         tTop, b.splay - tTop, tBot, b.splay - tBot,
         r.hasNfc ? (b.nfc_sheet === null ? 0 : b.nfc_sheet) : '',
         r.hasNfc ? nfcVal(b) : '',
@@ -1049,10 +1321,13 @@ function saveExcluded() {
 function loadPrefs() {
   try {
     const raw = JSON.parse(localStorage.getItem(PREFS_KEY) || '{}');
-    if (raw.align === 'top' || raw.align === 'bottom') PREFS.align = raw.align;
+    if (['top', 'bottom', 'zones'].includes(raw.align)) PREFS.align = raw.align;
+    if (Number.isInteger(raw.far) && raw.far >= 1 && raw.far <= 8) PREFS.far = raw.far;
+    if (Number.isInteger(raw.near) && raw.near >= 1 && raw.near <= 8) PREFS.near = raw.near;
+    if (raw.labels === 'function' || raw.labels === 'array') PREFS.labels = raw.labels;
     if (raw.shade === 'angle' || raw.shade === 'nfc') PREFS.shade = raw.shade;
     if (raw.overlay && typeof raw.overlay === 'object') PREFS.overlay = raw.overlay;
-    if (raw.sizes && typeof raw.sizes === 'object') PREFS.sizes = raw.sizes;
+    if (typeof raw.size === 'string') PREFS.size = raw.size;
   } catch (e) {}
 }
 function savePrefs() {
@@ -1061,6 +1336,17 @@ function savePrefs() {
 
 document.getElementById('exportCsvBtn').addEventListener('click', exportCsv);
 document.getElementById('printReportBtn').addEventListener('click', () => window.print());
+// Paper can't expand a collapsed section, so print opens them all and puts
+// back whatever the screen had closed.
+let CLOSED_FOR_PRINT = [];
+window.addEventListener('beforeprint', () => {
+  CLOSED_FOR_PRINT = [...document.querySelectorAll('#reportBody details:not([open])')];
+  CLOSED_FOR_PRINT.forEach(d => { d.open = true; });
+});
+window.addEventListener('afterprint', () => {
+  CLOSED_FOR_PRINT.forEach(d => { d.open = false; });
+  CLOSED_FOR_PRINT = [];
+});
 document.addEventListener('click', e => {
   const picker = document.getElementById('datePicker');
   if (picker.open && !picker.contains(e.target)) picker.open = false;
